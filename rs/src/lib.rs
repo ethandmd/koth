@@ -536,9 +536,9 @@ impl Game {
     }
 
     pub fn render_list(&self) -> Vec<f32> {
-        // Packed: [x, y, sprite_id]. Exposed to JS as a Float32Array.
+        // Packed: [x, y, rotation, sprite_id]. Exposed to JS as a Float32Array.
         // Sprite IDs must match the JS spritePaths order.
-        let mut out = Vec::with_capacity(7 * 3);
+        let mut out = Vec::with_capacity(7 * 4);
         for entity in [
             self.castle,
             self.cannon,
@@ -552,8 +552,22 @@ impl Game {
                 self.world.get::<&Transform>(entity),
                 self.world.get::<&Renderable>(entity),
             ) {
+                let rotation = if entity == self.arrow && self.arrow_state.active {
+                    self.world
+                        .get::<&Velocity>(self.arrow)
+                        .map(|v| v.vel.y.atan2(v.vel.x))
+                        .unwrap_or(0.0)
+                } else if entity == self.cannonball && self.cannonball_state.active {
+                    self.world
+                        .get::<&Velocity>(self.cannonball)
+                        .map(|v| v.vel.y.atan2(v.vel.x))
+                        .unwrap_or(0.0)
+                } else {
+                    0.0
+                };
                 out.push(t.pos.x);
                 out.push(t.pos.y);
+                out.push(rotation);
                 out.push(r.sprite_id as f32);
             }
         }

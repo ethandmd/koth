@@ -115,11 +115,12 @@ app.ticker.add((ticker) => {
     }
   };
 
-  for (let i = 0; i + 2 < renderList.length; i += 3) {
+  for (let i = 0; i + 3 < renderList.length; i += 4) {
     const x = renderList[i];
     const y = renderList[i + 1];
-    const spriteId = renderList[i + 2];
-    const entityIndex = i / 3;
+    const rotation = renderList[i + 2];
+    const spriteId = renderList[i + 3];
+    const entityIndex = i / 4;
 
     let sprite = spritesByEntity[entityIndex];
     const tex = textures[spriteId] ?? textures[0];
@@ -135,10 +136,12 @@ app.ticker.add((ticker) => {
     }
     const targetHeight = desiredHeightForSprite(spriteId);
     const scale = targetHeight / sprite.texture.height;
-    sprite.scale.set(scale, scale);
+    const flipX = spriteId === 7 ? -1 : 1;
+    sprite.scale.set(scale * flipX, scale);
 
     sprite.x = x;
     sprite.y = y;
+    sprite.rotation = rotation;
   }
 
   debugLayer.clear();
