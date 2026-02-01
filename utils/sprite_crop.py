@@ -22,6 +22,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("files", nargs="+", help="Input PNG files or globs")
     parser.add_argument("--pad", type=int, default=24, help="Padding in pixels")
     parser.add_argument("--tol", type=int, default=10, help="Background color tolerance")
+    parser.add_argument(
+        "--out-dir",
+        type=str,
+        default="",
+        help="Optional output directory (defaults to input file directory)",
+    )
+    parser.add_argument(
+        "--suffix",
+        type=str,
+        default="-sprite",
+        help="Suffix appended to the output filename stem",
+    )
     return parser.parse_args()
 
 
@@ -45,8 +57,20 @@ def background_color(arr: np.ndarray) -> tuple[int, int, int]:
     return max(set(corners), key=corners.count)
 
 
+def corners_transparent(arr: np.ndarray) -> bool:
+    alphas = [
+        arr[0, 0, 3],
+        arr[0, -1, 3],
+        arr[-1, 0, 3],
+        arr[-1, -1, 3],
+    ]
+    return sum(1 for a in alphas if a == 0) >= 3
+
+
 def remove_background(im: Image.Image, tol: int) -> Image.Image:
     arr = np.array(im)
+    if corners_transparent(arr):
+        return im
     bg = background_color(arr)
     diff = np.abs(arr[:, :, :3].astype(int) - np.array(bg, dtype=int))
     mask = (diff <= tol).all(axis=2)
@@ -85,7 +109,8 @@ def main() -> None:
         y = (max_h - im.height) // 2
         canvas.paste(im, (x, y))
 
-        out_path = p.with_name(p.stem + "-sprite.png")
+        out_dir = Path(args.out_dir) if args.out_dir else p.parent
+        out_path = out_dir / f"{p.stem}{args.suffix}.png"
         canvas.save(out_path)
         print(f"{p.name} -> {out_path.name} ({canvas.size[0]}x{canvas.size[1]})")
 

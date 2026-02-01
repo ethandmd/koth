@@ -50,6 +50,18 @@ RUN printf '%s\n' \
   '  server_name _;' \
   '  root /usr/share/nginx/html;' \
   '  index index.html;' \
+  '  include /etc/nginx/mime.types;' \
+  '  location /assets/ {' \
+  '    try_files $uri =404;' \
+  '    add_header Cache-Control "public, max-age=31536000, immutable";' \
+  '  }' \
+  '  location /sprites/ {' \
+  '    try_files $uri =404;' \
+  '    add_header Cache-Control "public, max-age=31536000, immutable";' \
+  '  }' \
+  '  location = /index.html {' \
+  '    add_header Cache-Control "no-cache";' \
+  '  }' \
   '  location / {' \
   '    try_files $uri $uri/ /index.html;' \
   '  }' \
@@ -60,4 +72,3 @@ RUN printf '%s\n' \
   > /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
-
