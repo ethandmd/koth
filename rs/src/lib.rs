@@ -331,7 +331,7 @@ impl Game {
                 if let Ok(cannon_collider) = self.world.get::<&Collider>(self.cannon) {
                     if let ColliderShape::Aabb { half_extents: a_he } = cannon_collider.shape {
                         let cannon_center =
-                            castle_top_right - cannon_collider.offset + Vec2::new(a_he.x, -a_he.y);
+                            castle_top_right - cannon_collider.offset + Vec2::new(-a_he.x, -a_he.y);
                         cannon_target = Some(cannon_center);
                     }
                 }
@@ -339,7 +339,7 @@ impl Game {
                 if let Ok(cross_collider) = self.world.get::<&Collider>(self.crossbow) {
                     if let ColliderShape::Aabb { half_extents: a_he } = cross_collider.shape {
                         let cross_center =
-                            castle_top_left - cross_collider.offset + Vec2::new(-a_he.x, -a_he.y);
+                            castle_top_left - cross_collider.offset + Vec2::new(a_he.x, -a_he.y);
                         cross_target = Some(cross_center);
                     }
                 }
