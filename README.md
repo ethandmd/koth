@@ -63,30 +63,29 @@ This compiles the Rust core to WASM (`web/pkg/`) and starts the dev server.
 ## Notes
 
 - The Rust build used by the browser is produced by `wasm-pack` (via `pnpm run build:wasm`).
-- The Rust core returns a packed render list; JS reads it as a `Float32Array` of `[x, y, sprite_id]` triples.
+- The Rust core returns a packed render list; JS reads it as a `Float32Array` of `[x, y, rotation, sprite_id]` quads.
+- Rust also exposes a packed debug list (`[kind, x, y, a, b]`) for collider overlays.
 - Sprite processing helper: `utils/sprite_crop.py` (crop, remove background, pad to uniform canvas).
 
-## Physics + gameplay model plan (hecs)
+## Physics + gameplay model (hecs)
 
-### Goals
+### Current approach
 - Deterministic, lightweight gameplay simulation suitable for tower defense.
 - Simple collision/range checks (no heavy rigid-body engine).
 - Clear separation between simulation data and render output.
-- Easy to add debug overlays for colliders, ranges, and paths.
+- Debug overlays for colliders are already emitted via `debug_list`.
 
-### Implementation strategy
-- **ECS:** Use `hecs` as a minimal ECS for entities and components.
+### Implementation details
+- **ECS:** `hecs` for entities and components.
 - **Core components:**
   - `Transform { pos: Vec2 }`
-  - `Velocity { v: Vec2 }`
+  - `Velocity { vel: Vec2 }`
   - `Collider { shape: Circle | Aabb, layer, mask }`
-  - `Health { hp }`
-  - `Team { id }`
   - `Renderable { sprite_id }`
 - **Simulation loop (per tick):**
   - Integrate positions from velocity.
-  - Resolve simple collisions (projectile vs enemy, enemy vs base).
-  - Apply tower targeting (range checks) and spawn projectiles.
+  - Spawn and advance projectiles from the crossbow/cannon pools.
+  - Resolve simple collisions (projectile vs enemy) and update score.
   - Update lifetimes / despawn entities.
 - **Spatial queries:**
   - Start with naive O(n^2) checks (small entity counts).
@@ -94,6 +93,11 @@ This compiles the Rust core to WASM (`web/pkg/`) and starts the dev server.
 - **Render list:**
   - Build from `Renderable + Transform` each frame.
   - Keep it flat and packed for WASM → JS transfer.
-- **Debug view (later):**
-  - Emit a separate debug list for colliders and ranges.
+- **Debug view:**
+  - A separate debug list is emitted for colliders.
   - JS renders debug primitives (circles/rects) via Pixi `Graphics`.
+
+### Planned refinements
+- Expand the render list schema (tint, z-order, optional animation frame).
+- Move to a zero-allocation render list (WASM memory pointer + length).
+- Add deterministic replay helpers for debugging.

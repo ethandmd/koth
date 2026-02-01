@@ -8,7 +8,8 @@ This directory holds the Rust gameplay core compiled to WebAssembly. It is the s
   - Declares a `cdylib` crate so Rust can compile to WASM.
   - Dependencies:
     - `wasm-bindgen` for JS interop
-    - `glam` for game math (future use)
+    - `glam` for game math
+    - `hecs` for the ECS world
 - `src/lib.rs`
   - WASM entry point and exported API (`Game`, `InputState`).
 
@@ -34,21 +35,38 @@ Output:
   - `pointer_x`, `pointer_y`, `pointer_down`
 - `Game`
   - `new()`
+  - `set_viewport(width, height)`
   - `tick(dt, input)`
   - `render_list()` → `Float32Array` in JS
+  - `debug_list()` → `Float32Array` in JS
+  - `score()` → `u32`
 
 ## Render list format
 Packed as a flat float array, grouped as:
 
 ```
-[x, y, sprite_id]
+[x, y, rotation, sprite_id]
 ```
 
-Each frame, JS reads these triples and updates sprites.
+Each frame, JS reads these quads and updates sprites.
+
+## Debug list format
+Packed as a flat float array, grouped as:
+
+```
+[kind, x, y, a, b]
+```
+
+`kind` values:
+- `0`: circle (`a = radius`)
+- `1`: AABB (`a = half_width`, `b = half_height`)
 
 ## Current logic
 - `Game` stores `time` and advances it in `tick`.
-- `render_list()` returns one placeholder entity that moves horizontally using `sin(time)`.
+- Castle, cannon, and crossbow are anchored to the viewport.
+- Triguy and wedgeguy approach the castle and then fall offscreen.
+- Pointer input fires crossbow bolts (left side) or cannonballs (right side).
+- Projectiles use simple gravity and circle hit tests; hits increment `score`.
 
 ## Next steps (planned)
 - Expand the render list schema (rotation, frame index, tint, etc.).

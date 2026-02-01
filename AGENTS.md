@@ -19,6 +19,7 @@ Build a 2D arcade-style tower defense game that runs entirely client-side in the
 - Keep JS ↔ WASM calls minimal (one input update + one render list per frame).
 - Prefer pure-Rust dependencies (avoid C/C++ wrappers).
 - Prioritize predictable performance on desktop and mobile browsers.
+- When adding a new feature, update this document with any new development how-tos, and update `rs/README.md` or `web/README.md` to reflect how the new code works.
 
 ## Best practices from recent RCAs
 - PixiJS v8: load images via `Assets.load(...)` (not `Texture.fromURL`, which no longer exists).

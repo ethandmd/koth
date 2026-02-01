@@ -30,20 +30,34 @@ Static sprites live in `web/public/sprites/` and are referenced by absolute path
    - Input is passed to Rust via `game.tick(dt, input)`.
    - Rust returns a packed `Float32Array` render list.
    - JS maps each entity to a Pixi `Sprite` and updates position/texture.
+   - Rust returns a packed `Float32Array` debug list for colliders.
 
 ## Render list format
-The render list is a flat `Float32Array` in triples:
+The render list is a flat `Float32Array` in quads:
 
 ```
-[x, y, sprite_id]
+[x, y, rotation, sprite_id]
 ```
 
-`main.js` interprets each triple as a single entity. `sprite_id` indexes into the `spritePaths` list.
+`main.js` interprets each quad as a single entity. `sprite_id` indexes into the `spritePaths` list.
+
+## Debug list format
+The debug list is a flat `Float32Array` in quintuples:
+
+```
+[kind, x, y, a, b]
+```
+
+`kind` values:
+- `0`: circle (`a = radius`)
+- `1`: AABB (`a = half_width`, `b = half_height`)
 
 ## Current demo behavior
 - A castle sprite is centered in the viewport.
 - A triguy sprite advances from the left toward center, alternating stride/strike.
 - A wedgeguy sprite advances from the right toward center, alternating stride/strike.
+- Pointer-down fires the left crossbow or right cannon toward the cursor.
+- Projectiles arc under gravity and score increments on hits.
 
 ## Key files
 - `web/src/main.js` — Pixi setup, input capture, render loop

@@ -23,20 +23,29 @@ app.canvas.addEventListener('webglcontextrestored', () => {
 
 console.info('Pixi renderer:', app.renderer?.constructor?.name ?? 'unknown');
 
+await Assets.init({
+  basePath: import.meta.env.BASE_URL ?? '/',
+});
+
 const spritePaths = [
-  '/sprites/retro-triguy-stride1-sprite.png',
-  '/sprites/retro-triguy-strike-sprite.png',
-  '/sprites/retro-wedgeguy-stride-sprite.png',
-  '/sprites/retro-wedgeguy-strike-sprite.png',
-  '/sprites/retro-castle-sprite.png',
-  '/sprites/retro-cannon-sprite.png',
-  '/sprites/retro-crossbow-sprite.png',
-  '/sprites/retro-arrow-sprite.png',
-  '/sprites/retro-cannonball-sprite.png',
+  'sprites/retro-triguy-stride1-sprite.png',
+  'sprites/retro-triguy-strike-sprite.png',
+  'sprites/retro-wedgeguy-stride-sprite.png',
+  'sprites/retro-wedgeguy-strike-sprite.png',
+  'sprites/retro-castle-sprite.png',
+  'sprites/retro-cannon-sprite.png',
+  'sprites/retro-crossbow-sprite.png',
+  'sprites/retro-arrow-sprite.png',
+  'sprites/retro-cannonball-sprite.png',
 ];
 
-const loadedTextures = await Assets.load(spritePaths);
-const textures = spritePaths.map((path) => loadedTextures[path]);
+let textures = [];
+try {
+  await Assets.load(spritePaths);
+  textures = spritePaths.map((path) => Assets.get(path));
+} catch (error) {
+  console.error('Failed to load sprite assets', error);
+}
 
 await init();
 const game = new Game();
@@ -48,9 +57,13 @@ const spritesByEntity = [];
 const debugLayer = new Graphics();
 app.stage.addChild(debugLayer);
 
-let pendingViewport = { w: app.canvas.width, h: app.canvas.height };
+let lastViewport = { w: 0, h: 0 };
+const readViewport = () => ({
+  w: app.renderer?.width ?? app.canvas.width,
+  h: app.renderer?.height ?? app.canvas.height,
+});
 window.addEventListener('resize', () => {
-  pendingViewport = { w: app.canvas.width, h: app.canvas.height };
+  lastViewport = { w: 0, h: 0 };
 });
 
 const pointer = {
@@ -75,9 +88,12 @@ app.canvas.addEventListener('pointerleave', () => {
 });
 
 app.ticker.add((ticker) => {
-  if (pendingViewport) {
-    game.set_viewport(pendingViewport.w, pendingViewport.h);
-    pendingViewport = null;
+  const viewport = readViewport();
+  if (viewport.w > 0 && viewport.h > 0) {
+    if (viewport.w !== lastViewport.w || viewport.h !== lastViewport.h) {
+      game.set_viewport(viewport.w, viewport.h);
+      lastViewport = viewport;
+    }
   }
   input.pointer_x = pointer.x;
   input.pointer_y = pointer.y;
