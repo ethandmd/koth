@@ -26,6 +26,12 @@ struct CharacterState {
 }
 
 #[derive(Clone, Copy)]
+struct ProjectileState {
+    active: bool,
+    cooldown: f32,
+}
+
+#[derive(Clone, Copy)]
 struct Renderable {
     sprite_id: u16,
 }
@@ -68,8 +74,11 @@ pub struct Game {
     time: f32,
     viewport_w: f32,
     viewport_h: f32,
+    score: u32,
     triguy_state: CharacterState,
     wedgeguy_state: CharacterState,
+    arrow_state: ProjectileState,
+    cannonball_state: ProjectileState,
     world: World,
     castle: Entity,
     cannon: Entity,
@@ -177,6 +186,7 @@ impl Game {
             time: 0.0,
             viewport_w: 0.0,
             viewport_h: 0.0,
+            score: 0,
             triguy_state: CharacterState {
                 phase: CharacterPhase::Inactive,
                 respawn_timer: 0.25,
@@ -184,6 +194,14 @@ impl Game {
             wedgeguy_state: CharacterState {
                 phase: CharacterPhase::Inactive,
                 respawn_timer: 0.75,
+            },
+            arrow_state: ProjectileState {
+                active: false,
+                cooldown: 0.0,
+            },
+            cannonball_state: ProjectileState {
+                active: false,
+                cooldown: 0.0,
             },
             world,
             castle,
@@ -201,7 +219,11 @@ impl Game {
         self.viewport_h = height;
     }
 
-    pub fn tick(&mut self, dt: f32, _input: &InputState) {
+    pub fn score(&self) -> u32 {
+        self.score
+    }
+
+    pub fn tick(&mut self, dt: f32, input: &InputState) {
         self.time += dt;
 
         if self.viewport_w <= 0.0 || self.viewport_h <= 0.0 {
@@ -211,14 +233,20 @@ impl Game {
         let center_x = self.viewport_w * 0.5;
         let mut left_stop = center_x - 140.0;
         let mut right_stop = center_x + 140.0;
-        let speed = 120.0;
+        let speed = 90.0;
         let fall_speed = 220.0;
+        let arrow_speed = 420.0;
+        let cannon_speed = 340.0;
+        let arrow_gravity = 520.0;
+        let cannon_gravity = 760.0;
+        let arrow_cooldown = 0.35;
+        let cannon_cooldown = 0.8;
 
         let center_y = self.viewport_h * 0.5;
         let ground_y = self.viewport_h * 0.75;
         let base = self.viewport_w.min(self.viewport_h);
         let castle_height = base * 0.25;
-        let weapon_height = castle_height * 0.2;
+        let weapon_height = castle_height * 0.22;
         let character_height = castle_height * 0.35;
         let projectile_height = weapon_height * 0.35;
 
@@ -229,6 +257,7 @@ impl Game {
         let character_scale = character_height / 56.0;
         let character_offscreen = character_height * 3.0;
         let projectile_offscreen = projectile_height * 4.0;
+        let hidden_pos = Vec2::new(-10000.0, -10000.0);
 
         let anim = (self.time * 6.0).floor() as i32 % 2;
         let triguy_sprite = if anim == 0 { 0 } else { 1 };
@@ -324,6 +353,7 @@ impl Game {
             t.pos = pos;
         }
 
+        let mut crossbow_spawn = None;
         if let (Ok(t), Ok(c)) = (
             self.world.get::<&Transform>(self.crossbow),
             self.world.get::<&Collider>(self.crossbow),
@@ -332,18 +362,10 @@ impl Game {
             if let ColliderShape::Aabb { half_extents } = c.shape {
                 spawn += Vec2::new(-half_extents.x, -weapon_height * 0.1);
             }
-            if let (Ok(mut proj_t), Ok(v)) = (
-                self.world.get::<&mut Transform>(self.arrow),
-                self.world.get::<&Velocity>(self.arrow),
-            ) {
-                if proj_t.pos == Vec2::ZERO || proj_t.pos.x < -projectile_offscreen {
-                    proj_t.pos = spawn;
-                } else {
-                    proj_t.pos += v.vel * dt;
-                }
-            }
+            crossbow_spawn = Some(spawn);
         }
 
+        let mut cannon_spawn = None;
         if let (Ok(t), Ok(c)) = (
             self.world.get::<&Transform>(self.cannon),
             self.world.get::<&Collider>(self.cannon),
@@ -352,15 +374,89 @@ impl Game {
             if let ColliderShape::Aabb { half_extents } = c.shape {
                 spawn += Vec2::new(half_extents.x, -weapon_height * 0.1);
             }
-            if let (Ok(mut proj_t), Ok(v)) = (
-                self.world.get::<&mut Transform>(self.cannonball),
-                self.world.get::<&Velocity>(self.cannonball),
-            ) {
-                if proj_t.pos == Vec2::ZERO || proj_t.pos.x > self.viewport_w + projectile_offscreen {
-                    proj_t.pos = spawn;
-                } else {
-                    proj_t.pos += v.vel * dt;
+            cannon_spawn = Some(spawn);
+        }
+
+        self.arrow_state.cooldown = (self.arrow_state.cooldown - dt).max(0.0);
+        self.cannonball_state.cooldown = (self.cannonball_state.cooldown - dt).max(0.0);
+
+        let wants_fire = input.pointer_down;
+        let aim_pos = Vec2::new(input.pointer_x, input.pointer_y);
+        if wants_fire {
+            if aim_pos.x <= center_x {
+                if self.arrow_state.cooldown <= 0.0 && !self.arrow_state.active {
+                    if let (Some(spawn), Ok(mut proj_t), Ok(mut v)) = (
+                        crossbow_spawn,
+                        self.world.get::<&mut Transform>(self.arrow),
+                        self.world.get::<&mut Velocity>(self.arrow),
+                    ) {
+                        let mut dir = aim_pos - spawn;
+                        if dir.length_squared() < 1.0 {
+                            dir = Vec2::new(-1.0, 0.0);
+                        }
+                        dir = dir.normalize();
+                        proj_t.pos = spawn;
+                        v.vel = dir * arrow_speed;
+                        self.arrow_state.active = true;
+                        self.arrow_state.cooldown = arrow_cooldown;
+                    }
                 }
+            } else if self.cannonball_state.cooldown <= 0.0 && !self.cannonball_state.active {
+                if let (Some(spawn), Ok(mut proj_t), Ok(mut v)) = (
+                    cannon_spawn,
+                    self.world.get::<&mut Transform>(self.cannonball),
+                    self.world.get::<&mut Velocity>(self.cannonball),
+                ) {
+                    let mut dir = aim_pos - spawn;
+                    if dir.length_squared() < 1.0 {
+                        dir = Vec2::new(1.0, 0.0);
+                    }
+                    dir = dir.normalize();
+                    proj_t.pos = spawn;
+                    v.vel = dir * cannon_speed;
+                    self.cannonball_state.active = true;
+                    self.cannonball_state.cooldown = cannon_cooldown;
+                }
+            }
+        }
+
+        if let (Ok(mut proj_t), Ok(mut v)) = (
+            self.world.get::<&mut Transform>(self.arrow),
+            self.world.get::<&mut Velocity>(self.arrow),
+        ) {
+            if self.arrow_state.active {
+                v.vel.y += arrow_gravity * dt;
+                proj_t.pos += v.vel * dt;
+                let offscreen = proj_t.pos.x < -projectile_offscreen
+                    || proj_t.pos.x > self.viewport_w + projectile_offscreen
+                    || proj_t.pos.y > self.viewport_h + projectile_offscreen
+                    || proj_t.pos.y < -projectile_offscreen;
+                if offscreen {
+                    self.arrow_state.active = false;
+                    proj_t.pos = hidden_pos;
+                }
+            } else if proj_t.pos != hidden_pos {
+                proj_t.pos = hidden_pos;
+            }
+        }
+
+        if let (Ok(mut proj_t), Ok(mut v)) = (
+            self.world.get::<&mut Transform>(self.cannonball),
+            self.world.get::<&mut Velocity>(self.cannonball),
+        ) {
+            if self.cannonball_state.active {
+                v.vel.y += cannon_gravity * dt;
+                proj_t.pos += v.vel * dt;
+                let offscreen = proj_t.pos.x < -projectile_offscreen
+                    || proj_t.pos.x > self.viewport_w + projectile_offscreen
+                    || proj_t.pos.y > self.viewport_h + projectile_offscreen
+                    || proj_t.pos.y < -projectile_offscreen;
+                if offscreen {
+                    self.cannonball_state.active = false;
+                    proj_t.pos = hidden_pos;
+                }
+            } else if proj_t.pos != hidden_pos {
+                proj_t.pos = hidden_pos;
             }
         }
 
@@ -435,6 +531,8 @@ impl Game {
         if let Ok(mut r) = self.world.get::<&mut Renderable>(self.wedgeguy) {
             r.sprite_id = wedgeguy_sprite;
         }
+
+        self.resolve_projectile_hits();
     }
 
     pub fn render_list(&self) -> Vec<f32> {
@@ -486,6 +584,153 @@ impl Game {
             }
         }
         out
+    }
+}
+
+impl Game {
+    fn resolve_projectile_hits(&mut self) {
+        let mut arrow_hit = false;
+        let mut cannon_hit = false;
+        let mut score_add = 0u32;
+
+        let arrow_data = if self.arrow_state.active {
+            if let (Ok(t), Ok(c)) = (
+                self.world.get::<&Transform>(self.arrow),
+                self.world.get::<&Collider>(self.arrow),
+            ) {
+                if let ColliderShape::Circle { radius } = c.shape {
+                    Some((t.pos + c.offset, radius))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let cannon_data = if self.cannonball_state.active {
+            if let (Ok(t), Ok(c)) = (
+                self.world.get::<&Transform>(self.cannonball),
+                self.world.get::<&Collider>(self.cannonball),
+            ) {
+                if let ColliderShape::Circle { radius } = c.shape {
+                    Some((t.pos + c.offset, radius))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some((proj_pos, proj_r)) = arrow_data {
+            if try_hit_character(
+                &mut self.world,
+                self.triguy,
+                proj_pos,
+                proj_r,
+                &mut self.triguy_state,
+            ) {
+                arrow_hit = true;
+                score_add = score_add.saturating_add(1);
+            }
+            if try_hit_character(
+                &mut self.world,
+                self.wedgeguy,
+                proj_pos,
+                proj_r,
+                &mut self.wedgeguy_state,
+            )
+            {
+                arrow_hit = true;
+                score_add = score_add.saturating_add(1);
+            }
+        }
+
+        if let Some((proj_pos, proj_r)) = cannon_data {
+            if try_hit_character(
+                &mut self.world,
+                self.triguy,
+                proj_pos,
+                proj_r,
+                &mut self.triguy_state,
+            ) {
+                cannon_hit = true;
+                score_add = score_add.saturating_add(1);
+            }
+            if try_hit_character(
+                &mut self.world,
+                self.wedgeguy,
+                proj_pos,
+                proj_r,
+                &mut self.wedgeguy_state,
+            )
+            {
+                cannon_hit = true;
+                score_add = score_add.saturating_add(1);
+            }
+        }
+
+        if arrow_hit {
+            self.arrow_state.active = false;
+            if let Ok(mut t) = self.world.get::<&mut Transform>(self.arrow) {
+                t.pos = Vec2::new(-10000.0, -10000.0);
+            }
+        }
+
+        if cannon_hit {
+            self.cannonball_state.active = false;
+            if let Ok(mut t) = self.world.get::<&mut Transform>(self.cannonball) {
+                t.pos = Vec2::new(-10000.0, -10000.0);
+            }
+        }
+
+        if score_add > 0 {
+            self.score = self.score.saturating_add(score_add);
+        }
+    }
+}
+
+fn circle_hit(a_pos: Vec2, a_r: f32, b_pos: Vec2, b_r: f32) -> bool {
+    let delta = a_pos - b_pos;
+    let radius = a_r + b_r;
+    delta.length_squared() <= radius * radius
+}
+
+fn try_hit_character(
+    world: &mut World,
+    entity: Entity,
+    proj_pos: Vec2,
+    proj_r: f32,
+    state: &mut CharacterState,
+) -> bool {
+    if let CharacterPhase::Inactive = state.phase {
+        return false;
+    }
+    let (pos, radius) = if let (Ok(t), Ok(c)) =
+        (world.get::<&Transform>(entity), world.get::<&Collider>(entity))
+    {
+        if let ColliderShape::Circle { radius } = c.shape {
+            (t.pos + c.offset, radius)
+        } else {
+            return false;
+        }
+    } else {
+        return false;
+    };
+    if circle_hit(proj_pos, proj_r, pos, radius) {
+        state.phase = CharacterPhase::Inactive;
+        state.respawn_timer = 1.0;
+        if let Ok(mut t) = world.get::<&mut Transform>(entity) {
+            t.pos = Vec2::new(-10000.0, -10000.0);
+        }
+        true
+    } else {
+        false
     }
 }
 

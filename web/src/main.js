@@ -41,6 +41,8 @@ const textures = spritePaths.map((path) => loadedTextures[path]);
 await init();
 const game = new Game();
 const input = new InputState();
+const scoreEl = document.getElementById('score');
+let lastScore = -1;
 
 const spritesByEntity = [];
 const debugLayer = new Graphics();
@@ -83,6 +85,12 @@ app.ticker.add((ticker) => {
 
   const dt = ticker.deltaMS / 1000;
   game.tick(dt, input);
+
+  const score = game.score();
+  if (score !== lastScore && scoreEl) {
+    scoreEl.textContent = String(score);
+    lastScore = score;
+  }
 
   const renderList = game.render_list();
   const debugList = game.debug_list();
