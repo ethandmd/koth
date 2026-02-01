@@ -1,0 +1,5 @@
+rs/target
+web/node_modules
+web/dist
+web/pkg
+data/
