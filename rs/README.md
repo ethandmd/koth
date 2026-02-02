@@ -42,6 +42,7 @@ Output:
   - `score()` → `u32`
   - `wall_integrity()` → `f32` (0.0 - 1.0)
   - `game_over()` → `bool`
+  - `restart()`
 
 ## Render list format
 Packed as a flat float array, grouped as:

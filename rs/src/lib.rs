@@ -248,6 +248,48 @@ impl Game {
         self.game_over
     }
 
+    pub fn restart(&mut self) {
+        self.time = 0.0;
+        self.score = 0;
+        self.wall_integrity = WALL_INTEGRITY_MAX;
+        self.game_over = false;
+        self.triguy_state = CharacterState {
+            phase: CharacterPhase::Inactive,
+            respawn_timer: 0.25,
+        };
+        self.wedgeguy_state = CharacterState {
+            phase: CharacterPhase::Inactive,
+            respawn_timer: 0.75,
+        };
+        self.crossbow_cooldown = 0.0;
+        self.cannon_cooldown = 0.0;
+
+        let hidden_pos = Vec2::new(-10000.0, -10000.0);
+        for entity in [
+            self.triguy,
+            self.wedgeguy,
+            self.castle,
+            self.cannon,
+            self.crossbow,
+        ] {
+            if let Ok(mut t) = self.world.get::<&mut Transform>(entity) {
+                t.pos = hidden_pos;
+            }
+        }
+        for slot in &mut self.arrow_projectiles {
+            slot.active = false;
+            if let Ok(mut t) = self.world.get::<&mut Transform>(slot.entity) {
+                t.pos = hidden_pos;
+            }
+        }
+        for slot in &mut self.cannon_projectiles {
+            slot.active = false;
+            if let Ok(mut t) = self.world.get::<&mut Transform>(slot.entity) {
+                t.pos = hidden_pos;
+            }
+        }
+    }
+
     pub fn tick(&mut self, dt: f32, input: &InputState) {
         self.time += dt;
 
@@ -886,5 +928,29 @@ mod tests {
         let list2 = game.render_list();
         let rot2 = rotation_at(&list2, 3);
         assert!((rot2 - rot1).abs() > 0.0001);
+    }
+
+    #[test]
+    fn wall_integrity_degrades_and_triggers_game_over() {
+        let mut game = Game::new();
+        game.set_viewport(800.0, 600.0);
+        let input = InputState::new();
+
+        let dt = 1.0 / 30.0;
+        let mut elapsed = 0.0;
+        while elapsed < 8.0 {
+            game.tick(dt, &input);
+            elapsed += dt;
+        }
+        let mid_integrity = game.wall_integrity();
+        assert!(mid_integrity < 1.0);
+        assert!(mid_integrity > 0.0);
+
+        while elapsed < 30.0 {
+            game.tick(dt, &input);
+            elapsed += dt;
+        }
+        assert!(game.game_over());
+        assert!(game.wall_integrity() <= 0.001);
     }
 }

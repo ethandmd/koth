@@ -199,9 +199,20 @@ const input = new InputState();
 const scoreEl = document.getElementById('score');
 const wallEl = document.getElementById('wall');
 const statusEl = document.getElementById('status');
+const gameOverEl = document.getElementById('game-over');
+const restartButton = document.getElementById('restart');
 let lastScore = -1;
 let lastWall = -1;
 let lastGameOver = null;
+
+if (restartButton) {
+  restartButton.addEventListener('click', () => {
+    game.restart();
+    lastScore = -1;
+    lastWall = -1;
+    lastGameOver = null;
+  });
+}
 
 const spritesByEntity = [];
 const debugLayer = new Graphics();
@@ -264,8 +275,15 @@ app.ticker.add((ticker) => {
     lastWall = wallPercent;
   }
   const gameOver = game.game_over();
-  if (gameOver !== lastGameOver && statusEl) {
+  const gameOverChanged = gameOver !== lastGameOver;
+  if (gameOverChanged && statusEl) {
     statusEl.textContent = gameOver ? 'DEFEAT' : '';
+  }
+  if (gameOverEl && gameOverChanged) {
+    gameOverEl.classList.toggle('is-visible', gameOver);
+    gameOverEl.setAttribute('aria-hidden', gameOver ? 'false' : 'true');
+  }
+  if (gameOverChanged) {
     lastGameOver = gameOver;
   }
 
