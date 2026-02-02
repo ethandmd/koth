@@ -449,7 +449,7 @@ app.ticker.add((ticker) => {
 
   const renderList = game.render_list_view();
   const debugList = game.debug_list_view();
-  const stride = 5;
+  const stride = 6;
   for (let i = 0; i + (stride - 1) < renderList.length; i += stride) {
     const x = renderList[i];
     const y = renderList[i + 1];
@@ -467,6 +467,7 @@ app.ticker.add((ticker) => {
       textureIndex = 0;
     }
     const targetHeight = renderList[i + 4];
+    const alpha = Math.max(0, Math.min(1, renderList[i + 5] ?? 1));
     const entityIndex = i / stride;
 
     let sprite = spritesByEntity[entityIndex];
@@ -488,6 +489,7 @@ app.ticker.add((ticker) => {
     sprite.x = x;
     sprite.y = y;
     sprite.rotation = rotation;
+    sprite.alpha = alpha;
   }
 
   debugLayer.clear();

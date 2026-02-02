@@ -35,13 +35,13 @@ Static sprites live in `web/public/sprites/` and are referenced by absolute path
    - HUD reads `score`, `wall_integrity`, and `game_over`.
 
 ## Render list format
-The render list is a flat `Float32Array` in quintuples:
+The render list is a flat `Float32Array` in sextuples:
 
 ```
-[x, y, rotation, sprite_id, target_height]
+[x, y, rotation, sprite_id, target_height, alpha]
 ```
 
-`main.js` interprets each quad as a single entity. `sprite_id` indexes into the `spritePaths` list.
+`main.js` interprets each entry as a single entity. `sprite_id` indexes into the `spritePaths` list.
 
 ## Debug list format
 The debug list is a flat `Float32Array` in quintuples:
@@ -64,6 +64,7 @@ The debug list is a flat `Float32Array` in quintuples:
 - A game over overlay appears at 0% wall integrity with a restart button.
 - Pointer-down fires the left crossbow or right cannon toward the cursor.
 - Projectiles arc under gravity and score increments on hits.
+- Arrows stick into the ground and fade out over time.
 
 ## Key files
 - `web/src/main.js` — Pixi setup, input capture, render loop

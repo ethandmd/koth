@@ -33,6 +33,23 @@ struct ProjectileSlot {
 }
 
 #[derive(Clone, Copy)]
+enum ArrowState {
+    Inactive,
+    Flying,
+    Grounded {
+        fade_timer: f32,
+        alpha: f32,
+        rotation: f32,
+    },
+}
+
+#[derive(Clone, Copy)]
+struct ArrowSlot {
+    entity: Entity,
+    state: ArrowState,
+}
+
+#[derive(Clone, Copy)]
 struct ExplosionSlot {
     entity: Entity,
     active: bool,
@@ -119,7 +136,7 @@ pub struct Game {
     castle: Entity,
     cannon: Entity,
     crossbow: Entity,
-    arrow_projectiles: Vec<ProjectileSlot>,
+    arrow_projectiles: Vec<ArrowSlot>,
     cannon_projectiles: Vec<ProjectileSlot>,
     explosions: Vec<ExplosionSlot>,
     triguy: Entity,
@@ -138,6 +155,10 @@ const WALL_DAMAGE_PER_SECOND: f32 = 0.04;
 const GROUND_Y_RATIO: f32 = 0.75;
 const CASTLE_GROUND_SINK_RATIO: f32 = 0.10;
 const EXPLOSION_FRAME_TIME: f32 = 0.05;
+const ARROW_FADE_INTERVAL: f32 = 0.05;
+const ARROW_FADE_STEP: f32 = 0.2;
+const ARROW_CAPSULE_HALF_RATIO: f32 = 0.55;
+const ARROW_CAPSULE_RADIUS_RATIO: f32 = 0.18;
 const EXPLOSION_GROW_STAGES: u8 = 5;
 const EXPLOSION_SHRINK_STAGES: u8 = 2;
 const EXPLOSION_STAGE_COUNT: u8 = EXPLOSION_GROW_STAGES + EXPLOSION_SHRINK_STAGES;
@@ -215,9 +236,9 @@ impl Game {
                     offset: Vec2::ZERO,
                 },
             ));
-            arrow_projectiles.push(ProjectileSlot {
+            arrow_projectiles.push(ArrowSlot {
                 entity: arrow,
-                active: false,
+                state: ArrowState::Inactive,
             });
         }
 
@@ -418,9 +439,12 @@ impl Game {
             }
         }
         for slot in &mut self.arrow_projectiles {
-            slot.active = false;
+            slot.state = ArrowState::Inactive;
             if let Ok(mut t) = self.world.get::<&mut Transform>(slot.entity) {
                 t.pos = hidden_pos;
+            }
+            if let Ok(mut v) = self.world.get::<&mut Velocity>(slot.entity) {
+                v.vel = Vec2::ZERO;
             }
         }
         for slot in &mut self.cannon_projectiles {
@@ -625,7 +649,11 @@ impl Game {
         if wants_fire {
             if aim_pos.x <= center_x {
                 if self.crossbow_cooldown <= 0.0 {
-                    if let Some(slot) = self.arrow_projectiles.iter_mut().find(|s| !s.active) {
+                    if let Some(slot) = self
+                        .arrow_projectiles
+                        .iter_mut()
+                        .find(|s| matches!(s.state, ArrowState::Inactive))
+                    {
                         if let (Some(spawn), Ok(mut proj_t), Ok(mut v)) = (
                             crossbow_spawn,
                             self.world.get::<&mut Transform>(slot.entity),
@@ -638,7 +666,7 @@ impl Game {
                             dir = dir.normalize();
                             proj_t.pos = spawn;
                             v.vel = dir * arrow_speed;
-                            slot.active = true;
+                            slot.state = ArrowState::Flying;
                             self.crossbow_cooldown = arrow_cadence;
                         }
                     }
@@ -669,19 +697,56 @@ impl Game {
                 self.world.get::<&mut Transform>(slot.entity),
                 self.world.get::<&mut Velocity>(slot.entity),
             ) {
-                if slot.active {
-                    v.vel.y += arrow_gravity * dt;
-                    proj_t.pos += v.vel * dt;
-                    let offscreen = proj_t.pos.x < -projectile_offscreen
-                        || proj_t.pos.x > self.viewport_w + projectile_offscreen
-                        || proj_t.pos.y > self.viewport_h + projectile_offscreen
-                        || proj_t.pos.y < -projectile_offscreen;
-                    if offscreen {
-                        slot.active = false;
-                        proj_t.pos = hidden_pos;
+                match slot.state {
+                    ArrowState::Inactive => {
+                        if proj_t.pos != hidden_pos {
+                            proj_t.pos = hidden_pos;
+                        }
                     }
-                } else if proj_t.pos != hidden_pos {
-                    proj_t.pos = hidden_pos;
+                    ArrowState::Flying => {
+                        v.vel.y += arrow_gravity * dt;
+                        proj_t.pos += v.vel * dt;
+                        if proj_t.pos.y >= ground_impact_y {
+                            let rotation = v.vel.y.atan2(v.vel.x);
+                            proj_t.pos.y = ground_impact_y;
+                            v.vel = Vec2::ZERO;
+                            slot.state = ArrowState::Grounded {
+                                fade_timer: 0.0,
+                                alpha: 1.0,
+                                rotation,
+                            };
+                            continue;
+                        }
+                        let offscreen = proj_t.pos.x < -projectile_offscreen
+                            || proj_t.pos.x > self.viewport_w + projectile_offscreen
+                            || proj_t.pos.y > self.viewport_h + projectile_offscreen
+                            || proj_t.pos.y < -projectile_offscreen;
+                        if offscreen {
+                            slot.state = ArrowState::Inactive;
+                            proj_t.pos = hidden_pos;
+                        }
+                    }
+                    ArrowState::Grounded {
+                        mut fade_timer,
+                        mut alpha,
+                        rotation,
+                    } => {
+                        fade_timer += dt;
+                        while fade_timer >= ARROW_FADE_INTERVAL {
+                            fade_timer -= ARROW_FADE_INTERVAL;
+                            alpha = (alpha - ARROW_FADE_STEP).max(0.0);
+                        }
+                        if alpha <= 0.0 {
+                            slot.state = ArrowState::Inactive;
+                            proj_t.pos = hidden_pos;
+                        } else {
+                            slot.state = ArrowState::Grounded {
+                                fade_timer,
+                                alpha,
+                                rotation,
+                            };
+                        }
+                    }
                 }
             }
         }
@@ -837,7 +902,7 @@ impl Game {
     }
 
     pub fn render_list(&mut self) -> Vec<f32> {
-        // Packed: [x, y, rotation, sprite_id, target_height]. Exposed to JS as a Float32Array.
+        // Packed: [x, y, rotation, sprite_id, target_height, alpha]. Exposed to JS as a Float32Array.
         // Sprite IDs must match the JS spritePaths order.
         self.update_render_buf();
         self.render_buf.clone()
@@ -883,6 +948,7 @@ impl Game {
                 self.render_buf.push(0.0);
                 self.render_buf.push(r.sprite_id as f32);
                 self.render_buf.push(self.sprite_height_for(r.sprite_id));
+                self.render_buf.push(1.0);
             }
         }
         for slot in &self.arrow_projectiles {
@@ -890,19 +956,23 @@ impl Game {
                 self.world.get::<&Transform>(slot.entity),
                 self.world.get::<&Renderable>(slot.entity),
             ) {
-                let rotation = if slot.active {
-                    self.world
-                        .get::<&Velocity>(slot.entity)
-                        .map(|v| v.vel.y.atan2(v.vel.x))
-                        .unwrap_or(0.0)
-                } else {
-                    0.0
+                let (rotation, alpha) = match slot.state {
+                    ArrowState::Inactive => (0.0, 0.0),
+                    ArrowState::Flying => (
+                        self.world
+                            .get::<&Velocity>(slot.entity)
+                            .map(|v| v.vel.y.atan2(v.vel.x))
+                            .unwrap_or(0.0),
+                        1.0,
+                    ),
+                    ArrowState::Grounded { rotation, alpha, .. } => (rotation, alpha),
                 };
                 self.render_buf.push(t.pos.x);
                 self.render_buf.push(t.pos.y);
                 self.render_buf.push(rotation);
                 self.render_buf.push(r.sprite_id as f32);
                 self.render_buf.push(self.sprite_height_for(r.sprite_id));
+                self.render_buf.push(alpha);
             }
         }
         for slot in &self.cannon_projectiles {
@@ -923,6 +993,7 @@ impl Game {
                 self.render_buf.push(rotation);
                 self.render_buf.push(r.sprite_id as f32);
                 self.render_buf.push(self.sprite_height_for(r.sprite_id));
+                self.render_buf.push(1.0);
             }
         }
         for slot in &self.explosions {
@@ -935,6 +1006,7 @@ impl Game {
                 self.render_buf.push(0.0);
                 self.render_buf.push(r.sprite_id as f32);
                 self.render_buf.push(self.sprite_height_for(r.sprite_id));
+                self.render_buf.push(1.0);
             }
         }
         for entity in [self.triguy, self.wedgeguy] {
@@ -947,6 +1019,7 @@ impl Game {
                 self.render_buf.push(0.0);
                 self.render_buf.push(r.sprite_id as f32);
                 self.render_buf.push(self.sprite_height_for(r.sprite_id));
+                self.render_buf.push(1.0);
             }
         }
     }
@@ -998,46 +1071,56 @@ impl Game {
         let hidden_pos = Vec2::new(-10000.0, -10000.0);
         let mut explosion_spawns: Vec<Vec2> = Vec::new();
 
+        let arrow_height = self.sprite_height_for(7);
+        let arrow_capsule_half = arrow_height * ARROW_CAPSULE_HALF_RATIO;
+        let arrow_capsule_radius = arrow_height * ARROW_CAPSULE_RADIUS_RATIO;
         for slot in &mut self.arrow_projectiles {
-            if !slot.active {
+            if !matches!(slot.state, ArrowState::Flying) {
                 continue;
             }
-            let proj_data = if let (Ok(t), Ok(c)) = (
+            let proj_data = if let (Ok(t), Ok(c), Ok(v)) = (
                 self.world.get::<&Transform>(slot.entity),
                 self.world.get::<&Collider>(slot.entity),
+                self.world.get::<&Velocity>(slot.entity),
             ) {
-                if let ColliderShape::Circle { radius } = c.shape {
-                    Some((t.pos + c.offset, radius))
+                let rotation = if v.vel.length_squared() > 0.0001 {
+                    v.vel.y.atan2(v.vel.x)
                 } else {
-                    None
-                }
+                    0.0
+                };
+                let dir = Vec2::new(rotation.cos(), rotation.sin());
+                Some((t.pos + c.offset, dir))
             } else {
                 None
             };
-            if let Some((proj_pos, proj_r)) = proj_data {
+            if let Some((proj_pos, proj_dir)) = proj_data {
                 let mut hit = false;
-                if try_hit_character(
+                if try_hit_character_capsule(
                     &mut self.world,
                     self.triguy,
                     proj_pos,
-                    proj_r,
+                    proj_dir,
+                    arrow_capsule_half,
+                    arrow_capsule_radius,
                     &mut self.triguy_state,
                 ) {
                     hit = true;
                     score_add = score_add.saturating_add(1);
                 }
-                if try_hit_character(
+                if try_hit_character_capsule(
                     &mut self.world,
                     self.wedgeguy,
                     proj_pos,
-                    proj_r,
+                    proj_dir,
+                    arrow_capsule_half,
+                    arrow_capsule_radius,
                     &mut self.wedgeguy_state,
                 ) {
                     hit = true;
                     score_add = score_add.saturating_add(1);
                 }
                 if hit {
-                    slot.active = false;
+                    slot.state = ArrowState::Inactive;
                     if let Ok(mut t) = self.world.get::<&mut Transform>(slot.entity) {
                         t.pos = hidden_pos;
                     }
@@ -1191,6 +1274,37 @@ fn circle_hit(a_pos: Vec2, a_r: f32, b_pos: Vec2, b_r: f32) -> bool {
     delta.length_squared() <= radius * radius
 }
 
+fn point_segment_distance_sq(p: Vec2, a: Vec2, b: Vec2) -> f32 {
+    let ab = b - a;
+    let ab_len_sq = ab.length_squared();
+    if ab_len_sq <= 0.0001 {
+        return (p - a).length_squared();
+    }
+    let t = ((p - a).dot(ab) / ab_len_sq).clamp(0.0, 1.0);
+    let proj = a + ab * t;
+    (p - proj).length_squared()
+}
+
+fn capsule_hit(
+    circle_center: Vec2,
+    circle_radius: f32,
+    capsule_center: Vec2,
+    capsule_dir: Vec2,
+    capsule_half: f32,
+    capsule_radius: f32,
+) -> bool {
+    let dir = if capsule_dir.length_squared() > 0.0001 {
+        capsule_dir.normalize()
+    } else {
+        Vec2::new(1.0, 0.0)
+    };
+    let a = capsule_center - dir * capsule_half;
+    let b = capsule_center + dir * capsule_half;
+    let dist_sq = point_segment_distance_sq(circle_center, a, b);
+    let radius = circle_radius + capsule_radius;
+    dist_sq <= radius * radius
+}
+
 fn try_hit_character(
     world: &mut World,
     entity: Entity,
@@ -1224,13 +1338,60 @@ fn try_hit_character(
     }
 }
 
+fn try_hit_character_capsule(
+    world: &mut World,
+    entity: Entity,
+    capsule_center: Vec2,
+    capsule_dir: Vec2,
+    capsule_half: f32,
+    capsule_radius: f32,
+    state: &mut CharacterState,
+) -> bool {
+    if let CharacterPhase::Inactive = state.phase {
+        return false;
+    }
+    let (pos, radius) = if let (Ok(t), Ok(c)) =
+        (world.get::<&Transform>(entity), world.get::<&Collider>(entity))
+    {
+        if let ColliderShape::Circle { radius } = c.shape {
+            (t.pos + c.offset, radius)
+        } else {
+            return false;
+        }
+    } else {
+        return false;
+    };
+    if capsule_hit(
+        pos,
+        radius,
+        capsule_center,
+        capsule_dir,
+        capsule_half,
+        capsule_radius,
+    ) {
+        state.phase = CharacterPhase::Inactive;
+        state.respawn_timer = 1.0;
+        if let Ok(mut t) = world.get::<&mut Transform>(entity) {
+            t.pos = Vec2::new(-10000.0, -10000.0);
+        }
+        true
+    } else {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn rotation_at(list: &[f32], entity_index: usize) -> f32 {
-        let base = entity_index * 5;
+        let base = entity_index * 6;
         list[base + 2]
+    }
+
+    fn alpha_at(list: &[f32], entity_index: usize) -> f32 {
+        let base = entity_index * 6;
+        list[base + 5]
     }
 
     #[test]
@@ -1247,15 +1408,15 @@ mod tests {
     }
 
     #[test]
-    fn render_list_stride_is_5() {
+    fn render_list_stride_is_6() {
         let mut game = Game::new();
         game.set_viewport(800.0, 600.0);
         let input = InputState::new();
         game.tick(1.0 / 60.0, &input);
         let list = game.render_list();
         let expected_entities = 5 + ARROW_POOL_SIZE + CANNONBALL_POOL_SIZE + EXPLOSION_POOL_SIZE;
-        assert_eq!(list.len(), expected_entities * 5);
-        assert_eq!(list.len() % 5, 0);
+        assert_eq!(list.len(), expected_entities * 6);
+        assert_eq!(list.len() % 6, 0);
     }
 
     #[test]
@@ -1289,6 +1450,37 @@ mod tests {
         let list2 = game.render_list();
         let rot2 = rotation_at(&list2, 3);
         assert!((rot2 - rot1).abs() > 0.0001);
+    }
+
+    #[test]
+    fn grounded_arrow_fades_out() {
+        let mut game = Game::new();
+        game.set_viewport(800.0, 600.0);
+        let mut input = InputState::new();
+        input.pointer_x = 0.0;
+        input.pointer_y = 1000.0;
+        input.pointer_down = true;
+        game.tick(1.0 / 60.0, &input);
+        input.pointer_down = false;
+
+        let mut grounded = false;
+        for _ in 0..180 {
+            game.tick(1.0 / 60.0, &input);
+            if matches!(game.arrow_projectiles[0].state, ArrowState::Grounded { .. }) {
+                grounded = true;
+                break;
+            }
+        }
+        assert!(grounded);
+
+        let list_before = game.render_list();
+        let alpha_before = alpha_at(&list_before, 3);
+        game.tick(ARROW_FADE_INTERVAL, &input);
+        let list_after = game.render_list();
+        let alpha_after = alpha_at(&list_after, 3);
+
+        assert!(alpha_after < alpha_before);
+        assert!((alpha_after - (alpha_before - ARROW_FADE_STEP)).abs() < 0.05);
     }
 
     #[test]

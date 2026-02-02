@@ -56,10 +56,10 @@ Output:
 Packed as a flat float array, grouped as:
 
 ```
-[x, y, rotation, sprite_id, target_height]
+[x, y, rotation, sprite_id, target_height, alpha]
 ```
 
-Each frame, JS reads these quintuples and updates sprites.
+Each frame, JS reads these sextuples and updates sprites.
 
 ## Debug list format
 Packed as a flat float array, grouped as:
@@ -80,6 +80,7 @@ Packed as a flat float array, grouped as:
 - Pointer input fires crossbow bolts (left side) or cannonballs (right side).
 - Projectiles use simple gravity and circle hit tests; hits increment `score`.
 - Cannonballs hitting the ground line (including the castle sink offset) trigger a brief expanding/shrinking explosion (50ms steps).
+- Arrows stick into the ground, freeze their rotation, and fade out in 20% steps.
 
 ## Next steps (planned)
 - Expand the render list schema (rotation, frame index, tint, etc.).
