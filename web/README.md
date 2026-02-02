@@ -25,7 +25,8 @@ Static sprites live in `web/public/sprites/` and are referenced by absolute path
 ## Runtime flow
 1) `main.js` loads the WASM bindings from `web/pkg/`.
 2) It initializes Pixi and preloads sprite textures.
-3) Each frame:
+3) It builds a simple background (sky, clouds, ground, trees) using the ground line reported by Rust.
+4) Each frame:
    - Pointer input is captured from DOM events.
    - Input is passed to Rust via `game.tick(dt, input)`.
    - Rust returns a packed `Float32Array` render list.
@@ -57,6 +58,7 @@ The debug list is a flat `Float32Array` in quintuples:
 - A castle sprite is centered in the viewport.
 - A triguy sprite advances from the left toward center, alternating stride/strike.
 - A wedgeguy sprite advances from the right toward center, alternating stride/strike.
+- A procedural background renders sky, clouds, ground, and trees aligned to the shared ground line.
 - Enemies stop at the wall and continuously damage wall integrity.
 - A game over overlay appears at 0% wall integrity with a restart button.
 - Pointer-down fires the left crossbow or right cannon toward the cursor.

@@ -17,6 +17,7 @@ import 'pixi.js/advanced-blend-modes';
 import {
   Application,
   Assets,
+  Container,
   Graphics,
   Sprite,
   TextureStyle,
@@ -215,6 +216,16 @@ if (restartButton) {
 }
 
 const spritesByEntity = [];
+const backgroundLayer = new Container();
+const skyLayer = new Graphics();
+const cloudLayer = new Container();
+const groundLayer = new Graphics();
+const treeLayer = new Graphics();
+backgroundLayer.addChild(skyLayer);
+backgroundLayer.addChild(cloudLayer);
+backgroundLayer.addChild(groundLayer);
+backgroundLayer.addChild(treeLayer);
+app.stage.addChild(backgroundLayer);
 const debugLayer = new Graphics();
 app.stage.addChild(debugLayer);
 
@@ -231,6 +242,88 @@ const pointer = {
   x: 0,
   y: 0,
   down: false,
+};
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+const makeRng = (seed) => () => {
+  seed = (seed * 1664525 + 1013904223) >>> 0;
+  return seed / 4294967296;
+};
+const clouds = [];
+const rebuildBackground = (viewport) => {
+  const { w, h } = viewport;
+  if (w <= 0 || h <= 0) {
+    return;
+  }
+  const groundY = game.ground_y();
+  if (!(groundY > 0)) {
+    return;
+  }
+  const seed = (Math.round(w) * 73856093) ^ (Math.round(h) * 19349663);
+  const rng = makeRng(seed >>> 0);
+
+  skyLayer.clear();
+  cloudLayer.removeChildren();
+  groundLayer.clear();
+  treeLayer.clear();
+  clouds.length = 0;
+
+  const skyMid = groundY * 0.6;
+  skyLayer.rect(0, 0, w, skyMid).fill(0x69a9ff);
+  skyLayer.rect(0, skyMid, w, groundY - skyMid).fill(0x8bc6ff);
+  const sunRadius = Math.min(w, h) * 0.08;
+  const sunX = w * 0.85;
+  const sunY = h * 0.16;
+  skyLayer.circle(sunX, sunY, sunRadius).fill(0xffe19a);
+  skyLayer.circle(sunX, sunY, sunRadius * 1.35).fill({ color: 0xfff0c2, alpha: 0.35 });
+
+  const cloudCount = clamp(Math.round(w / 180), 4, 8);
+  for (let i = 0; i < cloudCount; i += 1) {
+    const cloud = new Graphics();
+    const size = clamp((0.7 + rng() * 0.9) * (w / 28), 24, 60);
+    const puff = size * 0.5;
+    cloud
+      .circle(0, 0, puff)
+      .circle(puff, -puff * 0.3, puff * 1.1)
+      .circle(puff * 2, 0, puff * 0.9)
+      .fill({ color: 0xffffff, alpha: 0.75 });
+    cloud.x = rng() * w;
+    cloud.y = clamp(rng() * groundY * 0.5 + h * 0.05, h * 0.05, groundY * 0.55);
+    cloudLayer.addChild(cloud);
+    clouds.push({
+      sprite: cloud,
+      speed: 6 + rng() * 10,
+      width: puff * 2.8,
+    });
+  }
+
+  const dirtColor = 0x7a4f2f;
+  const grassColor = 0x3f8b3c;
+  groundLayer.rect(0, groundY, w, h - groundY).fill(dirtColor);
+  const grassDepth = clamp(h * 0.06, 18, 44);
+  groundLayer.rect(0, groundY, w, grassDepth).fill(grassColor);
+  groundLayer.rect(0, groundY, w, 3).fill(0x2d6b2d);
+
+  const tuftCount = clamp(Math.round(w / 36), 14, 40);
+  for (let i = 0; i < tuftCount; i += 1) {
+    const x = rng() * w;
+    const r = 3 + rng() * 4;
+    groundLayer.circle(x, groundY + r * 0.6, r).fill(0x4d9a45);
+  }
+
+  const treeCount = clamp(Math.round(w / 220), 3, 7);
+  for (let i = 0; i < treeCount; i += 1) {
+    const x = (i + 0.3 + rng() * 0.4) * (w / treeCount);
+    const trunkH = clamp(h * (0.12 + rng() * 0.12), 40, 120);
+    const trunkW = clamp(trunkH * 0.18, 10, 26);
+    const canopyR = trunkW * (2.3 + rng() * 0.9);
+    treeLayer.rect(x - trunkW * 0.5, groundY - trunkH, trunkW, trunkH).fill(0x6b4a2d);
+    const canopyX = x + (rng() - 0.5) * trunkW * 0.8;
+    const canopyY = groundY - trunkH - canopyR * 0.45;
+    treeLayer.circle(canopyX, canopyY, canopyR).fill(0x2f6f34);
+    treeLayer.circle(canopyX + canopyR * 0.7, canopyY + canopyR * 0.15, canopyR * 0.75).fill(0x357b39);
+    treeLayer.circle(canopyX - canopyR * 0.6, canopyY + canopyR * 0.2, canopyR * 0.65).fill(0x2b6230);
+  }
 };
 
 app.canvas.addEventListener('pointermove', (e) => {
@@ -253,6 +346,7 @@ app.ticker.add((ticker) => {
   if (viewport.w > 0 && viewport.h > 0) {
     if (viewport.w !== lastViewport.w || viewport.h !== lastViewport.h) {
       game.set_viewport(viewport.w, viewport.h);
+      rebuildBackground(viewport);
       lastViewport = viewport;
     }
   }
@@ -261,6 +355,14 @@ app.ticker.add((ticker) => {
   input.pointer_down = pointer.down;
 
   const dt = ticker.deltaMS / 1000;
+  if (clouds.length > 0) {
+    for (const cloud of clouds) {
+      cloud.sprite.x += cloud.speed * dt;
+      if (cloud.sprite.x - cloud.width > viewport.w + 40) {
+        cloud.sprite.x = -cloud.width - 40;
+      }
+    }
+  }
   game.tick(dt, input);
 
   const score = game.score();

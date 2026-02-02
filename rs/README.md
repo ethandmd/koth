@@ -36,6 +36,7 @@ Output:
 - `Game`
   - `new()`
   - `set_viewport(width, height)`
+  - `ground_y()` → `f32` (shared ground line in viewport space)
   - `tick(dt, input)`
   - `render_list()` → `Float32Array` in JS
   - `debug_list()` → `Float32Array` in JS

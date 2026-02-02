@@ -95,6 +95,7 @@ const ARROW_POOL_SIZE: usize = 6;
 const CANNONBALL_POOL_SIZE: usize = 4;
 const WALL_INTEGRITY_MAX: f32 = 1.0;
 const WALL_DAMAGE_PER_SECOND: f32 = 0.04;
+const GROUND_Y_RATIO: f32 = 0.75;
 
 #[wasm_bindgen]
 impl Game {
@@ -236,6 +237,10 @@ impl Game {
         self.viewport_h = height;
     }
 
+    pub fn ground_y(&self) -> f32 {
+        self.viewport_h * GROUND_Y_RATIO
+    }
+
     pub fn score(&self) -> u32 {
         self.score
     }
@@ -309,7 +314,7 @@ impl Game {
         let cannon_cadence = 0.25;
 
         let center_y = self.viewport_h * 0.5;
-        let ground_y = self.viewport_h * 0.75;
+        let ground_y = self.viewport_h * GROUND_Y_RATIO;
         let base = self.viewport_w.min(self.viewport_h);
         let castle_height = base * 0.25;
         let weapon_height = castle_height * 0.22;
