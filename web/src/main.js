@@ -197,7 +197,11 @@ await init();
 const game = new Game();
 const input = new InputState();
 const scoreEl = document.getElementById('score');
+const wallEl = document.getElementById('wall');
+const statusEl = document.getElementById('status');
 let lastScore = -1;
+let lastWall = -1;
+let lastGameOver = null;
 
 const spritesByEntity = [];
 const debugLayer = new Graphics();
@@ -252,6 +256,17 @@ app.ticker.add((ticker) => {
   if (score !== lastScore && scoreEl) {
     scoreEl.textContent = String(score);
     lastScore = score;
+  }
+  const wallIntegrity = game.wall_integrity();
+  const wallPercent = Math.max(0, Math.min(100, Math.round(wallIntegrity * 100)));
+  if (wallPercent !== lastWall && wallEl) {
+    wallEl.textContent = `${wallPercent}%`;
+    lastWall = wallPercent;
+  }
+  const gameOver = game.game_over();
+  if (gameOver !== lastGameOver && statusEl) {
+    statusEl.textContent = gameOver ? 'DEFEAT' : '';
+    lastGameOver = gameOver;
   }
 
   const renderList = game.render_list();

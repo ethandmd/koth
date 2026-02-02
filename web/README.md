@@ -31,6 +31,7 @@ Static sprites live in `web/public/sprites/` and are referenced by absolute path
    - Rust returns a packed `Float32Array` render list.
    - JS maps each entity to a Pixi `Sprite` and updates position/texture.
    - Rust returns a packed `Float32Array` debug list for colliders.
+   - HUD reads `score`, `wall_integrity`, and `game_over`.
 
 ## Render list format
 The render list is a flat `Float32Array` in quads:
@@ -56,6 +57,7 @@ The debug list is a flat `Float32Array` in quintuples:
 - A castle sprite is centered in the viewport.
 - A triguy sprite advances from the left toward center, alternating stride/strike.
 - A wedgeguy sprite advances from the right toward center, alternating stride/strike.
+- Enemies stop at the wall and continuously damage wall integrity.
 - Pointer-down fires the left crossbow or right cannon toward the cursor.
 - Projectiles arc under gravity and score increments on hits.
 

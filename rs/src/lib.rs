@@ -16,7 +16,7 @@ struct Velocity {
 enum CharacterPhase {
     Inactive,
     Approaching,
-    Falling,
+    Attacking,
 }
 
 #[derive(Clone, Copy)]
@@ -75,6 +75,8 @@ pub struct Game {
     viewport_w: f32,
     viewport_h: f32,
     score: u32,
+    wall_integrity: f32,
+    game_over: bool,
     triguy_state: CharacterState,
     wedgeguy_state: CharacterState,
     crossbow_cooldown: f32,
@@ -91,6 +93,8 @@ pub struct Game {
 
 const ARROW_POOL_SIZE: usize = 6;
 const CANNONBALL_POOL_SIZE: usize = 4;
+const WALL_INTEGRITY_MAX: f32 = 1.0;
+const WALL_DAMAGE_PER_SECOND: f32 = 0.04;
 
 #[wasm_bindgen]
 impl Game {
@@ -204,6 +208,8 @@ impl Game {
             viewport_w: 0.0,
             viewport_h: 0.0,
             score: 0,
+            wall_integrity: WALL_INTEGRITY_MAX,
+            game_over: false,
             triguy_state: CharacterState {
                 phase: CharacterPhase::Inactive,
                 respawn_timer: 0.25,
@@ -234,6 +240,14 @@ impl Game {
         self.score
     }
 
+    pub fn wall_integrity(&self) -> f32 {
+        self.wall_integrity
+    }
+
+    pub fn game_over(&self) -> bool {
+        self.game_over
+    }
+
     pub fn tick(&mut self, dt: f32, input: &InputState) {
         self.time += dt;
 
@@ -245,7 +259,6 @@ impl Game {
         let mut left_stop = center_x - 140.0;
         let mut right_stop = center_x + 140.0;
         let speed = 90.0;
-        let fall_speed = 220.0;
         let arrow_speed = 420.0;
         let cannon_speed = 340.0;
         let arrow_gravity = 520.0;
@@ -332,6 +345,9 @@ impl Game {
                 left_stop = castle_center.x - c_he.x;
                 right_stop = castle_center.x + c_he.x;
             }
+        }
+        if self.game_over {
+            return;
         }
         let mut cannon_target = None;
         let mut cross_target = None;
@@ -501,17 +517,14 @@ impl Game {
                 CharacterPhase::Approaching => {
                     t.pos += v.vel * dt;
                     if t.pos.x >= left_stop {
-                        t.pos.x = left_stop;
-                        v.vel = Vec2::new(0.0, fall_speed);
-                        self.triguy_state.phase = CharacterPhase::Falling;
+                        t.pos = Vec2::new(left_stop, ground_y);
+                        v.vel = Vec2::ZERO;
+                        self.triguy_state.phase = CharacterPhase::Attacking;
                     }
                 }
-                CharacterPhase::Falling => {
-                    t.pos += v.vel * dt;
-                    if t.pos.y > self.viewport_h + character_offscreen {
-                        self.triguy_state.phase = CharacterPhase::Inactive;
-                        self.triguy_state.respawn_timer = 1.0;
-                    }
+                CharacterPhase::Attacking => {
+                    t.pos = Vec2::new(left_stop, ground_y);
+                    v.vel = Vec2::ZERO;
                 }
             }
         }
@@ -537,22 +550,34 @@ impl Game {
                 CharacterPhase::Approaching => {
                     t.pos += v.vel * dt;
                     if t.pos.x <= right_stop {
-                        t.pos.x = right_stop;
-                        v.vel = Vec2::new(0.0, fall_speed);
-                        self.wedgeguy_state.phase = CharacterPhase::Falling;
+                        t.pos = Vec2::new(right_stop, ground_y);
+                        v.vel = Vec2::ZERO;
+                        self.wedgeguy_state.phase = CharacterPhase::Attacking;
                     }
                 }
-                CharacterPhase::Falling => {
-                    t.pos += v.vel * dt;
-                    if t.pos.y > self.viewport_h + character_offscreen {
-                        self.wedgeguy_state.phase = CharacterPhase::Inactive;
-                        self.wedgeguy_state.respawn_timer = 1.0;
-                    }
+                CharacterPhase::Attacking => {
+                    t.pos = Vec2::new(right_stop, ground_y);
+                    v.vel = Vec2::ZERO;
                 }
             }
         }
         if let Ok(mut r) = self.world.get::<&mut Renderable>(self.wedgeguy) {
             r.sprite_id = wedgeguy_sprite;
+        }
+
+        let mut attackers = 0u32;
+        if let CharacterPhase::Attacking = self.triguy_state.phase {
+            attackers += 1;
+        }
+        if let CharacterPhase::Attacking = self.wedgeguy_state.phase {
+            attackers += 1;
+        }
+        if attackers > 0 {
+            let damage = WALL_DAMAGE_PER_SECOND * attackers as f32 * dt;
+            self.wall_integrity = (self.wall_integrity - damage).max(0.0);
+            if self.wall_integrity <= 0.0 {
+                self.game_over = true;
+            }
         }
 
         self.resolve_projectile_hits();

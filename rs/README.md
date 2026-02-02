@@ -40,6 +40,8 @@ Output:
   - `render_list()` → `Float32Array` in JS
   - `debug_list()` → `Float32Array` in JS
   - `score()` → `u32`
+  - `wall_integrity()` → `f32` (0.0 - 1.0)
+  - `game_over()` → `bool`
 
 ## Render list format
 Packed as a flat float array, grouped as:
@@ -64,7 +66,8 @@ Packed as a flat float array, grouped as:
 ## Current logic
 - `Game` stores `time` and advances it in `tick`.
 - Castle, cannon, and crossbow are anchored to the viewport.
-- Triguy and wedgeguy approach the castle and then fall offscreen.
+- Triguy and wedgeguy approach the castle and stop at the castle wall.
+- Each attacker at the wall damages wall integrity until it reaches 0%.
 - Pointer input fires crossbow bolts (left side) or cannonballs (right side).
 - Projectiles use simple gravity and circle hit tests; hits increment `score`.
 

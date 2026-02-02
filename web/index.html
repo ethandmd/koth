@@ -51,6 +51,10 @@
         opacity: 0.7;
         pointer-events: none;
       }
+      #status {
+        margin-left: 12px;
+        color: #ff6b6b;
+      }
       canvas {
         display: block;
         image-rendering: pixelated;
@@ -58,7 +62,12 @@
     </style>
   </head>
   <body>
-    <div id="hud">Score: <span id="score">0</span></div>
+    <div id="hud">
+      Score: <span id="score">0</span>
+      <span aria-hidden="true"> | </span>
+      Wall: <span id="wall">100%</span>
+      <span id="status"></span>
+    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
   </body>
