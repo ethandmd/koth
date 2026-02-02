@@ -37,6 +37,31 @@ struct Renderable {
 }
 
 #[derive(Clone, Copy)]
+struct SpriteBounds {
+    sprite_w: f32,
+    sprite_h: f32,
+    min_x: f32,
+    min_y: f32,
+    max_x: f32,
+    max_y: f32,
+    valid: bool,
+}
+
+impl Default for SpriteBounds {
+    fn default() -> Self {
+        SpriteBounds {
+            sprite_w: 0.0,
+            sprite_h: 0.0,
+            min_x: 0.0,
+            min_y: 0.0,
+            max_x: 0.0,
+            max_y: 0.0,
+            valid: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 enum ColliderShape {
     Circle { radius: f32 },
     Aabb { half_extents: Vec2 },
@@ -89,6 +114,7 @@ pub struct Game {
     cannon_projectiles: Vec<ProjectileSlot>,
     triguy: Entity,
     wedgeguy: Entity,
+    castle_sprite_bounds: SpriteBounds,
 }
 
 const ARROW_POOL_SIZE: usize = 6;
@@ -96,6 +122,7 @@ const CANNONBALL_POOL_SIZE: usize = 4;
 const WALL_INTEGRITY_MAX: f32 = 1.0;
 const WALL_DAMAGE_PER_SECOND: f32 = 0.04;
 const GROUND_Y_RATIO: f32 = 0.75;
+const CASTLE_GROUND_SINK_RATIO: f32 = 0.10;
 
 #[wasm_bindgen]
 impl Game {
@@ -229,6 +256,7 @@ impl Game {
             cannon_projectiles,
             triguy,
             wedgeguy,
+            castle_sprite_bounds: SpriteBounds::default(),
         }
     }
 
@@ -239,6 +267,27 @@ impl Game {
 
     pub fn ground_y(&self) -> f32 {
         self.viewport_h * GROUND_Y_RATIO
+    }
+
+    pub fn set_castle_sprite_bounds(
+        &mut self,
+        sprite_w: f32,
+        sprite_h: f32,
+        min_x: f32,
+        min_y: f32,
+        max_x: f32,
+        max_y: f32,
+    ) {
+        let valid = sprite_w > 0.0 && sprite_h > 0.0 && max_x > min_x && max_y > min_y;
+        self.castle_sprite_bounds = SpriteBounds {
+            sprite_w,
+            sprite_h,
+            min_x,
+            min_y,
+            max_x,
+            max_y,
+            valid,
+        };
     }
 
     pub fn score(&self) -> u32 {
@@ -339,15 +388,32 @@ impl Game {
             self.world.get::<&mut Collider>(self.castle),
         ) {
             let mut castle_y = center_y;
-            let new_half_extents = castle_base_he * castle_scale;
+            let mut new_half_extents = castle_base_he * castle_scale;
+            let mut new_offset = c_collider.offset;
+            if self.castle_sprite_bounds.valid {
+                let sprite = self.castle_sprite_bounds;
+                let sprite_scale = castle_height / sprite.sprite_h;
+                let content_w = sprite.max_x - sprite.min_x;
+                let content_h = sprite.max_y - sprite.min_y;
+                new_half_extents = Vec2::new(content_w * 0.5 * sprite_scale, content_h * 0.5 * sprite_scale);
+                let content_center = Vec2::new(
+                    (sprite.min_x + sprite.max_x) * 0.5,
+                    (sprite.min_y + sprite.max_y) * 0.5,
+                );
+                let sprite_center = Vec2::new(sprite.sprite_w * 0.5, sprite.sprite_h * 0.5);
+                let offset_px = content_center - sprite_center;
+                new_offset = offset_px * sprite_scale;
+            }
             if let ColliderShape::Aabb { .. } = c_collider.shape {
                 // Align castle bottom to the shared ground line.
-                castle_y = ground_y - new_half_extents.y - c_collider.offset.y;
+                let sink = castle_height * CASTLE_GROUND_SINK_RATIO;
+                castle_y = ground_y - new_half_extents.y - new_offset.y + sink;
             }
             t.pos = Vec2::new(center_x, castle_y);
             c_collider.shape = ColliderShape::Aabb {
                 half_extents: new_half_extents,
             };
+            c_collider.offset = new_offset;
         }
         if let Ok(mut c_collider) = self.world.get::<&mut Collider>(self.cannon) {
             c_collider.shape = ColliderShape::Aabb {

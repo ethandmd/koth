@@ -206,6 +206,74 @@ let lastScore = -1;
 let lastWall = -1;
 let lastGameOver = null;
 
+const resolveTextureImage = (texture) => {
+  const source =
+    texture?.source?.resource ??
+    texture?.baseTexture?.resource ??
+    texture?.resource ??
+    null;
+  return source?.source ?? source ?? null;
+};
+
+const computeOpaqueBounds = (image) => {
+  if (!image || !image.width || !image.height) {
+    return null;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) {
+    return null;
+  }
+  ctx.drawImage(image, 0, 0);
+  const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const alpha = data[(y * width + x) * 4 + 3];
+      if (alpha > 0) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < minX || maxY < minY) {
+    return null;
+  }
+  return {
+    spriteW: width,
+    spriteH: height,
+    minX,
+    minY,
+    maxX,
+    maxY,
+  };
+};
+
+const castleTexture = textures[4];
+if (castleTexture) {
+  const castleImage = resolveTextureImage(castleTexture);
+  const bounds = computeOpaqueBounds(castleImage);
+  if (bounds) {
+    game.set_castle_sprite_bounds(
+      bounds.spriteW,
+      bounds.spriteH,
+      bounds.minX,
+      bounds.minY,
+      bounds.maxX,
+      bounds.maxY,
+    );
+  } else {
+    console.warn('[boot] castle bounds unavailable, using default collider');
+  }
+}
+
 if (restartButton) {
   restartButton.addEventListener('click', () => {
     game.restart();

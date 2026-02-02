@@ -37,6 +37,7 @@ Output:
   - `new()`
   - `set_viewport(width, height)`
   - `ground_y()` → `f32` (shared ground line in viewport space)
+  - `set_castle_sprite_bounds(sprite_w, sprite_h, min_x, min_y, max_x, max_y)`
   - `tick(dt, input)`
   - `render_list()` → `Float32Array` in JS
   - `debug_list()` → `Float32Array` in JS

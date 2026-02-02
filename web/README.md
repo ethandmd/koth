@@ -59,6 +59,7 @@ The debug list is a flat `Float32Array` in quintuples:
 - A triguy sprite advances from the left toward center, alternating stride/strike.
 - A wedgeguy sprite advances from the right toward center, alternating stride/strike.
 - A procedural background renders sky, clouds, ground, and trees aligned to the shared ground line.
+- The castle collider is sized from the sprite's opaque bounds once at startup.
 - Enemies stop at the wall and continuously damage wall integrity.
 - A game over overlay appears at 0% wall integrity with a restart button.
 - Pointer-down fires the left crossbow or right cannon toward the cursor.
