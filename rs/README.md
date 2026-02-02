@@ -40,7 +40,13 @@ Output:
   - `set_castle_sprite_bounds(sprite_w, sprite_h, min_x, min_y, max_x, max_y)`
   - `tick(dt, input)`
   - `render_list()` → `Float32Array` in JS
+  - `render_list_view()` → `Float32Array` view in JS (no copy)
   - `debug_list()` → `Float32Array` in JS
+  - `debug_list_view()` → `Float32Array` view in JS (no copy)
+  - `sprite_paths()` → `String[]` in JS
+  - `explosion_sprite_base()` → `u16` (first explosion sprite id)
+  - `explosion_scales()` → `Float32Array` in JS
+  - `sprite_heights()` → `Float32Array` in JS
   - `score()` → `u32`
   - `wall_integrity()` → `f32` (0.0 - 1.0)
   - `game_over()` → `bool`
@@ -50,10 +56,10 @@ Output:
 Packed as a flat float array, grouped as:
 
 ```
-[x, y, rotation, sprite_id]
+[x, y, rotation, sprite_id, target_height]
 ```
 
-Each frame, JS reads these quads and updates sprites.
+Each frame, JS reads these quintuples and updates sprites.
 
 ## Debug list format
 Packed as a flat float array, grouped as:
@@ -73,6 +79,7 @@ Packed as a flat float array, grouped as:
 - Each attacker at the wall damages wall integrity until it reaches 0%.
 - Pointer input fires crossbow bolts (left side) or cannonballs (right side).
 - Projectiles use simple gravity and circle hit tests; hits increment `score`.
+- Cannonballs hitting the ground line (including the castle sink offset) trigger a brief expanding/shrinking explosion (50ms steps).
 
 ## Next steps (planned)
 - Expand the render list schema (rotation, frame index, tint, etc.).

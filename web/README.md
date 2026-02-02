@@ -35,10 +35,10 @@ Static sprites live in `web/public/sprites/` and are referenced by absolute path
    - HUD reads `score`, `wall_integrity`, and `game_over`.
 
 ## Render list format
-The render list is a flat `Float32Array` in quads:
+The render list is a flat `Float32Array` in quintuples:
 
 ```
-[x, y, rotation, sprite_id]
+[x, y, rotation, sprite_id, target_height]
 ```
 
 `main.js` interprets each quad as a single entity. `sprite_id` indexes into the `spritePaths` list.

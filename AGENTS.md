@@ -27,6 +27,13 @@ Build a 2D arcade-style tower defense game that runs entirely client-side in the
 - When updating PixiJS, check the v8 API docs/changelog for breaking changes in asset loading.
 - Keep `web/pkg` generated via `wasm-pack` and ensure dev docs call out this step.
 
+## Build expectations after changes
+- If you modify `rs/` code, run `cargo build` and `cargo test`.
+- If you modify `web/` code, run `pnpm run build`.
+
+## Explosion scaling consistency
+- The explosion scale curve must be mirrored in both Rust (collider sizing) and JS (sprite sizing). If you change one, update the other to keep rendering and debug colliders in sync.
+
 ## Nice-to-have
 - PWA-friendly structure for mobile installation.
 - Deterministic simulation for replays and debugging.

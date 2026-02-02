@@ -174,28 +174,18 @@ await Assets.init({
   basePath: import.meta.env.BASE_URL ?? '/',
 });
 
-const spritePaths = [
-  'sprites/retro-triguy-stride1-sprite.png',
-  'sprites/retro-triguy-strike-sprite.png',
-  'sprites/retro-wedgeguy-stride-sprite.png',
-  'sprites/retro-wedgeguy-strike-sprite.png',
-  'sprites/retro-castle-sprite.png',
-  'sprites/retro-cannon-sprite.png',
-  'sprites/retro-crossbow-sprite.png',
-  'sprites/retro-arrow-sprite.png',
-  'sprites/retro-cannonball-sprite.png',
-];
+await init();
+const game = new Game();
+const spritePaths = Array.from(game.sprite_paths());
 
 let textures = [];
+let warnedSpriteId = false;
 try {
   await Assets.load(spritePaths);
   textures = spritePaths.map((path) => Assets.get(path));
 } catch (error) {
   console.error('Failed to load sprite assets', error);
 }
-
-await init();
-const game = new Game();
 const input = new InputState();
 const scoreEl = document.getElementById('score');
 const wallEl = document.getElementById('wall');
@@ -457,38 +447,30 @@ app.ticker.add((ticker) => {
     lastGameOver = gameOver;
   }
 
-  const renderList = game.render_list();
-  const debugList = game.debug_list();
-  const base = Math.min(app.canvas.width, app.canvas.height);
-  const castleHeight = base * 0.25;
-  const weaponHeight = castleHeight * 0.2;
-  const characterHeight = castleHeight * 0.35;
-  const projectileHeight = weaponHeight * 0.35;
-
-  const desiredHeightForSprite = (spriteId) => {
-    switch (spriteId) {
-      case 4:
-        return castleHeight;
-      case 5:
-      case 6:
-        return weaponHeight;
-      case 7:
-      case 8:
-        return projectileHeight;
-      default:
-        return characterHeight;
-    }
-  };
-
-  for (let i = 0; i + 3 < renderList.length; i += 4) {
+  const renderList = game.render_list_view();
+  const debugList = game.debug_list_view();
+  const stride = 5;
+  for (let i = 0; i + (stride - 1) < renderList.length; i += stride) {
     const x = renderList[i];
     const y = renderList[i + 1];
     const rotation = renderList[i + 2];
     const spriteId = renderList[i + 3];
-    const entityIndex = i / 4;
+    let textureIndex = spriteId;
+    if (textureIndex < 0 || textureIndex >= textures.length) {
+      if (!warnedSpriteId) {
+        console.warn('[render] sprite_id out of range', {
+          spriteId,
+          max: textures.length - 1,
+        });
+        warnedSpriteId = true;
+      }
+      textureIndex = 0;
+    }
+    const targetHeight = renderList[i + 4];
+    const entityIndex = i / stride;
 
     let sprite = spritesByEntity[entityIndex];
-    const tex = textures[spriteId] ?? textures[0];
+    const tex = textures[textureIndex] ?? textures[0];
     if (!sprite) {
       sprite = new Sprite(tex);
       sprite.anchor.set(0.5, 0.5);
@@ -499,7 +481,6 @@ app.ticker.add((ticker) => {
     if (sprite.texture !== tex) {
       sprite.texture = tex;
     }
-    const targetHeight = desiredHeightForSprite(spriteId);
     const scale = targetHeight / sprite.texture.height;
     const flipX = spriteId === 7 ? -1 : 1;
     sprite.scale.set(scale * flipX, scale);

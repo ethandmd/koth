@@ -1,4 +1,5 @@
 use wasm_bindgen::prelude::*;
+use js_sys::Float32Array;
 use glam::Vec2;
 use hecs::{Entity, World};
 
@@ -29,6 +30,14 @@ struct CharacterState {
 struct ProjectileSlot {
     entity: Entity,
     active: bool,
+}
+
+#[derive(Clone, Copy)]
+struct ExplosionSlot {
+    entity: Entity,
+    active: bool,
+    stage: u8,
+    timer: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -112,17 +121,41 @@ pub struct Game {
     crossbow: Entity,
     arrow_projectiles: Vec<ProjectileSlot>,
     cannon_projectiles: Vec<ProjectileSlot>,
+    explosions: Vec<ExplosionSlot>,
     triguy: Entity,
     wedgeguy: Entity,
     castle_sprite_bounds: SpriteBounds,
+    render_buf: Vec<f32>,
+    debug_buf: Vec<f32>,
+    sprite_heights_cache: Vec<f32>,
 }
 
 const ARROW_POOL_SIZE: usize = 6;
 const CANNONBALL_POOL_SIZE: usize = 4;
+const EXPLOSION_POOL_SIZE: usize = 6;
 const WALL_INTEGRITY_MAX: f32 = 1.0;
 const WALL_DAMAGE_PER_SECOND: f32 = 0.04;
 const GROUND_Y_RATIO: f32 = 0.75;
 const CASTLE_GROUND_SINK_RATIO: f32 = 0.10;
+const EXPLOSION_FRAME_TIME: f32 = 0.05;
+const EXPLOSION_GROW_STAGES: u8 = 5;
+const EXPLOSION_SHRINK_STAGES: u8 = 2;
+const EXPLOSION_STAGE_COUNT: u8 = EXPLOSION_GROW_STAGES + EXPLOSION_SHRINK_STAGES;
+const SPRITE_EXPLOSION_BASE: u16 = 9;
+const BASE_SPRITE_COUNT: usize = 9;
+const MAX_ENTITIES: usize =
+    5 + ARROW_POOL_SIZE + CANNONBALL_POOL_SIZE + EXPLOSION_POOL_SIZE;
+const SPRITE_PATHS: [&str; BASE_SPRITE_COUNT] = [
+    "sprites/retro-triguy-stride1-sprite.png",
+    "sprites/retro-triguy-strike-sprite.png",
+    "sprites/retro-wedgeguy-stride-sprite.png",
+    "sprites/retro-wedgeguy-strike-sprite.png",
+    "sprites/retro-castle-sprite.png",
+    "sprites/retro-cannon-sprite.png",
+    "sprites/retro-crossbow-sprite.png",
+    "sprites/retro-arrow-sprite.png",
+    "sprites/retro-cannonball-sprite.png",
+];
 
 #[wasm_bindgen]
 impl Game {
@@ -207,6 +240,28 @@ impl Game {
             });
         }
 
+        let mut explosions = Vec::with_capacity(EXPLOSION_POOL_SIZE);
+        for _ in 0..EXPLOSION_POOL_SIZE {
+            let explosion = world.spawn((
+                Transform { pos: Vec2::ZERO },
+                Renderable {
+                    sprite_id: SPRITE_EXPLOSION_BASE,
+                },
+                Collider {
+                    shape: ColliderShape::Circle { radius: 10.0 },
+                    layer: 1,
+                    mask: 0,
+                    offset: Vec2::ZERO,
+                },
+            ));
+            explosions.push(ExplosionSlot {
+                entity: explosion,
+                active: false,
+                stage: 0,
+                timer: 0.0,
+            });
+        }
+
         let triguy = world.spawn((
             Transform { pos: Vec2::ZERO },
             Velocity { vel: Vec2::ZERO },
@@ -254,15 +309,47 @@ impl Game {
             crossbow,
             arrow_projectiles,
             cannon_projectiles,
+            explosions,
             triguy,
             wedgeguy,
             castle_sprite_bounds: SpriteBounds::default(),
+            render_buf: Vec::with_capacity(MAX_ENTITIES * 5),
+            debug_buf: Vec::new(),
+            sprite_heights_cache: vec![0.0; BASE_SPRITE_COUNT + EXPLOSION_STAGE_COUNT as usize],
         }
     }
 
+    pub fn explosion_sprite_base(&self) -> u16 {
+        SPRITE_EXPLOSION_BASE
+    }
+
+    pub fn explosion_scales(&self) -> Vec<f32> {
+        (0..EXPLOSION_STAGE_COUNT)
+            .map(explosion_scale)
+            .collect()
+    }
+
+    pub fn sprite_paths(&self) -> Vec<String> {
+        let mut out: Vec<String> = SPRITE_PATHS.iter().map(|path| (*path).to_string()).collect();
+        for _ in 0..EXPLOSION_STAGE_COUNT {
+            out.push("sprites/explosion-sprite.png".to_string());
+        }
+        out
+    }
+
+    pub fn sprite_heights(&self) -> Vec<f32> {
+        self.sprite_heights_cache.clone()
+    }
+
     pub fn set_viewport(&mut self, width: f32, height: f32) {
+        if (self.viewport_w - width).abs() < f32::EPSILON
+            && (self.viewport_h - height).abs() < f32::EPSILON
+        {
+            return;
+        }
         self.viewport_w = width;
         self.viewport_h = height;
+        self.sprite_heights_cache = compute_sprite_heights(self.viewport_w, self.viewport_h);
     }
 
     pub fn ground_y(&self) -> f32 {
@@ -342,6 +429,14 @@ impl Game {
                 t.pos = hidden_pos;
             }
         }
+        for slot in &mut self.explosions {
+            slot.active = false;
+            slot.stage = 0;
+            slot.timer = 0.0;
+            if let Ok(mut t) = self.world.get::<&mut Transform>(slot.entity) {
+                t.pos = hidden_pos;
+            }
+        }
     }
 
     pub fn tick(&mut self, dt: f32, input: &InputState) {
@@ -360,7 +455,7 @@ impl Game {
         let arrow_gravity = 520.0;
         let cannon_gravity = 760.0;
         let arrow_cadence = 0.15;
-        let cannon_cadence = 0.25;
+        let cannon_cadence = 1.00;
 
         let center_y = self.viewport_h * 0.5;
         let ground_y = self.viewport_h * GROUND_Y_RATIO;
@@ -378,6 +473,7 @@ impl Game {
         let character_offscreen = character_height * 3.0;
         let projectile_offscreen = projectile_height * 4.0;
         let hidden_pos = Vec2::new(-10000.0, -10000.0);
+        let ground_impact_y = ground_y + castle_height * CASTLE_GROUND_SINK_RATIO;
 
         let anim = (self.time * 6.0).floor() as i32 % 2;
         let triguy_sprite = if anim == 0 { 0 } else { 1 };
@@ -590,6 +686,7 @@ impl Game {
             }
         }
 
+        let mut explosion_spawns: Vec<Vec2> = Vec::new();
         for slot in &mut self.cannon_projectiles {
             if let (Ok(mut proj_t), Ok(mut v)) = (
                 self.world.get::<&mut Transform>(slot.entity),
@@ -598,6 +695,13 @@ impl Game {
                 if slot.active {
                     v.vel.y += cannon_gravity * dt;
                     proj_t.pos += v.vel * dt;
+                    if proj_t.pos.y >= ground_impact_y {
+                        let impact_pos = Vec2::new(proj_t.pos.x, ground_impact_y);
+                        slot.active = false;
+                        proj_t.pos = hidden_pos;
+                        explosion_spawns.push(impact_pos);
+                        continue;
+                    }
                     let offscreen = proj_t.pos.x < -projectile_offscreen
                         || proj_t.pos.x > self.viewport_w + projectile_offscreen
                         || proj_t.pos.y > self.viewport_h + projectile_offscreen
@@ -608,6 +712,42 @@ impl Game {
                     }
                 } else if proj_t.pos != hidden_pos {
                     proj_t.pos = hidden_pos;
+                }
+            }
+        }
+
+        for pos in explosion_spawns {
+            self.spawn_explosion(pos);
+        }
+
+        for slot in &mut self.explosions {
+            if slot.active {
+                slot.timer += dt;
+                while slot.timer >= EXPLOSION_FRAME_TIME && slot.stage + 1 < EXPLOSION_STAGE_COUNT {
+                    slot.timer -= EXPLOSION_FRAME_TIME;
+                    slot.stage += 1;
+                    if let Ok(mut r) = self.world.get::<&mut Renderable>(slot.entity) {
+                        r.sprite_id = SPRITE_EXPLOSION_BASE + slot.stage as u16;
+                    }
+                }
+                if slot.stage + 1 >= EXPLOSION_STAGE_COUNT && slot.timer >= EXPLOSION_FRAME_TIME {
+                    slot.active = false;
+                    slot.stage = 0;
+                    slot.timer = 0.0;
+                    if let Ok(mut t) = self.world.get::<&mut Transform>(slot.entity) {
+                        t.pos = hidden_pos;
+                    }
+                } else if let Ok(mut c) = self.world.get::<&mut Collider>(slot.entity) {
+                    if let ColliderShape::Circle { .. } = c.shape {
+                        let scale = explosion_scale(slot.stage);
+                        c.shape = ColliderShape::Circle {
+                            radius: projectile_height * 0.5 * scale,
+                        };
+                    }
+                }
+            } else if let Ok(mut t) = self.world.get::<&mut Transform>(slot.entity) {
+                if t.pos != hidden_pos {
+                    t.pos = hidden_pos;
                 }
             }
         }
@@ -696,19 +836,53 @@ impl Game {
         self.resolve_projectile_hits();
     }
 
-    pub fn render_list(&self) -> Vec<f32> {
-        // Packed: [x, y, rotation, sprite_id]. Exposed to JS as a Float32Array.
+    pub fn render_list(&mut self) -> Vec<f32> {
+        // Packed: [x, y, rotation, sprite_id, target_height]. Exposed to JS as a Float32Array.
         // Sprite IDs must match the JS spritePaths order.
-        let mut out = Vec::with_capacity((5 + ARROW_POOL_SIZE + CANNONBALL_POOL_SIZE) * 4);
+        self.update_render_buf();
+        self.render_buf.clone()
+    }
+
+    pub fn render_list_view(&mut self) -> Float32Array {
+        // View into WASM memory; JS must not hold this across resizes that reallocate buffers.
+        self.update_render_buf();
+        unsafe { Float32Array::view(&self.render_buf) }
+    }
+
+    pub fn debug_list(&mut self) -> Vec<f32> {
+        // Packed: [kind, x, y, a, b]
+        // kind: 0 = circle (a=radius), 1 = aabb (a=half_w, b=half_h)
+        self.update_debug_buf();
+        self.debug_buf.clone()
+    }
+
+    pub fn debug_list_view(&mut self) -> Float32Array {
+        // View into WASM memory; JS must not hold this across resizes that reallocate buffers.
+        self.update_debug_buf();
+        unsafe { Float32Array::view(&self.debug_buf) }
+    }
+}
+
+impl Game {
+    fn sprite_height_for(&self, sprite_id: u16) -> f32 {
+        self.sprite_heights_cache
+            .get(sprite_id as usize)
+            .copied()
+            .unwrap_or(0.0)
+    }
+
+    fn update_render_buf(&mut self) {
+        self.render_buf.clear();
         for entity in [self.castle, self.cannon, self.crossbow] {
             if let (Ok(t), Ok(r)) = (
                 self.world.get::<&Transform>(entity),
                 self.world.get::<&Renderable>(entity),
             ) {
-                out.push(t.pos.x);
-                out.push(t.pos.y);
-                out.push(0.0);
-                out.push(r.sprite_id as f32);
+                self.render_buf.push(t.pos.x);
+                self.render_buf.push(t.pos.y);
+                self.render_buf.push(0.0);
+                self.render_buf.push(r.sprite_id as f32);
+                self.render_buf.push(self.sprite_height_for(r.sprite_id));
             }
         }
         for slot in &self.arrow_projectiles {
@@ -724,10 +898,11 @@ impl Game {
                 } else {
                     0.0
                 };
-                out.push(t.pos.x);
-                out.push(t.pos.y);
-                out.push(rotation);
-                out.push(r.sprite_id as f32);
+                self.render_buf.push(t.pos.x);
+                self.render_buf.push(t.pos.y);
+                self.render_buf.push(rotation);
+                self.render_buf.push(r.sprite_id as f32);
+                self.render_buf.push(self.sprite_height_for(r.sprite_id));
             }
         }
         for slot in &self.cannon_projectiles {
@@ -743,10 +918,23 @@ impl Game {
                 } else {
                     0.0
                 };
-                out.push(t.pos.x);
-                out.push(t.pos.y);
-                out.push(rotation);
-                out.push(r.sprite_id as f32);
+                self.render_buf.push(t.pos.x);
+                self.render_buf.push(t.pos.y);
+                self.render_buf.push(rotation);
+                self.render_buf.push(r.sprite_id as f32);
+                self.render_buf.push(self.sprite_height_for(r.sprite_id));
+            }
+        }
+        for slot in &self.explosions {
+            if let (Ok(t), Ok(r)) = (
+                self.world.get::<&Transform>(slot.entity),
+                self.world.get::<&Renderable>(slot.entity),
+            ) {
+                self.render_buf.push(t.pos.x);
+                self.render_buf.push(t.pos.y);
+                self.render_buf.push(0.0);
+                self.render_buf.push(r.sprite_id as f32);
+                self.render_buf.push(self.sprite_height_for(r.sprite_id));
             }
         }
         for entity in [self.triguy, self.wedgeguy] {
@@ -754,46 +942,61 @@ impl Game {
                 self.world.get::<&Transform>(entity),
                 self.world.get::<&Renderable>(entity),
             ) {
-                out.push(t.pos.x);
-                out.push(t.pos.y);
-                out.push(0.0);
-                out.push(r.sprite_id as f32);
+                self.render_buf.push(t.pos.x);
+                self.render_buf.push(t.pos.y);
+                self.render_buf.push(0.0);
+                self.render_buf.push(r.sprite_id as f32);
+                self.render_buf.push(self.sprite_height_for(r.sprite_id));
             }
         }
-        out
     }
 
-    pub fn debug_list(&self) -> Vec<f32> {
-        // Packed: [kind, x, y, a, b]
-        // kind: 0 = circle (a=radius), 1 = aabb (a=half_w, b=half_h)
-        let mut out = Vec::new();
+    fn update_debug_buf(&mut self) {
+        self.debug_buf.clear();
         for (_, (t, c)) in self.world.query::<(&Transform, &Collider)>().iter() {
             let center = t.pos + c.offset;
             match c.shape {
                 ColliderShape::Circle { radius } => {
-                    out.push(0.0);
-                    out.push(center.x);
-                    out.push(center.y);
-                    out.push(radius);
-                    out.push(0.0);
+                    self.debug_buf.push(0.0);
+                    self.debug_buf.push(center.x);
+                    self.debug_buf.push(center.y);
+                    self.debug_buf.push(radius);
+                    self.debug_buf.push(0.0);
                 }
                 ColliderShape::Aabb { half_extents } => {
-                    out.push(1.0);
-                    out.push(center.x);
-                    out.push(center.y);
-                    out.push(half_extents.x);
-                    out.push(half_extents.y);
+                    self.debug_buf.push(1.0);
+                    self.debug_buf.push(center.x);
+                    self.debug_buf.push(center.y);
+                    self.debug_buf.push(half_extents.x);
+                    self.debug_buf.push(half_extents.y);
                 }
             }
         }
-        out
     }
-}
 
-impl Game {
+    fn spawn_explosion(&mut self, pos: Vec2) {
+        if let Some(slot) = self.explosions.iter_mut().find(|s| !s.active) {
+            slot.active = true;
+            slot.stage = 0;
+            slot.timer = 0.0;
+            if let Ok(mut t) = self.world.get::<&mut Transform>(slot.entity) {
+                t.pos = pos;
+            }
+            if let Ok(mut r) = self.world.get::<&mut Renderable>(slot.entity) {
+                r.sprite_id = SPRITE_EXPLOSION_BASE;
+            }
+            if let Ok(mut c) = self.world.get::<&mut Collider>(slot.entity) {
+                c.shape = ColliderShape::Circle {
+                    radius: 10.0 * explosion_scale(0),
+                };
+            }
+        }
+    }
+
     fn resolve_projectile_hits(&mut self) {
         let mut score_add = 0u32;
         let hidden_pos = Vec2::new(-10000.0, -10000.0);
+        let mut explosion_spawns: Vec<Vec2> = Vec::new();
 
         for slot in &mut self.arrow_projectiles {
             if !slot.active {
@@ -885,6 +1088,49 @@ impl Game {
                     if let Ok(mut t) = self.world.get::<&mut Transform>(slot.entity) {
                         t.pos = hidden_pos;
                     }
+                    explosion_spawns.push(proj_pos);
+                }
+            }
+        }
+
+        for pos in explosion_spawns {
+            self.spawn_explosion(pos);
+        }
+
+        for slot in &self.explosions {
+            if !slot.active {
+                continue;
+            }
+            let explosion_data = if let (Ok(t), Ok(c)) = (
+                self.world.get::<&Transform>(slot.entity),
+                self.world.get::<&Collider>(slot.entity),
+            ) {
+                if let ColliderShape::Circle { radius } = c.shape {
+                    Some((t.pos + c.offset, radius))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            if let Some((explosion_pos, explosion_r)) = explosion_data {
+                if try_hit_character(
+                    &mut self.world,
+                    self.triguy,
+                    explosion_pos,
+                    explosion_r,
+                    &mut self.triguy_state,
+                ) {
+                    score_add = score_add.saturating_add(1);
+                }
+                if try_hit_character(
+                    &mut self.world,
+                    self.wedgeguy,
+                    explosion_pos,
+                    explosion_r,
+                    &mut self.wedgeguy_state,
+                ) {
+                    score_add = score_add.saturating_add(1);
                 }
             }
         }
@@ -893,6 +1139,50 @@ impl Game {
             self.score = self.score.saturating_add(score_add);
         }
     }
+}
+
+fn explosion_scale(stage: u8) -> f32 {
+    let stage = stage.min(EXPLOSION_STAGE_COUNT.saturating_sub(1));
+    if stage < EXPLOSION_GROW_STAGES {
+        1.25_f32.powi(stage as i32)
+    } else {
+        let max_scale = 1.25_f32.powi((EXPLOSION_GROW_STAGES - 1) as i32);
+        let shrink_stage = stage - (EXPLOSION_GROW_STAGES - 1);
+        max_scale * 0.5_f32.powi(shrink_stage as i32)
+    }
+}
+
+fn compute_sprite_heights(viewport_w: f32, viewport_h: f32) -> Vec<f32> {
+    let total = BASE_SPRITE_COUNT + EXPLOSION_STAGE_COUNT as usize;
+    if viewport_w <= 0.0 || viewport_h <= 0.0 {
+        return vec![0.0; total];
+    }
+
+    let base = viewport_w.min(viewport_h);
+    let castle_height = base * 0.25;
+    let weapon_height = castle_height * 0.22;
+    let character_height = castle_height * 0.35;
+    let projectile_height = weapon_height * 0.35;
+
+    let mut out = vec![character_height; total];
+    if out.len() > 4 {
+        out[4] = castle_height;
+    }
+    if out.len() > 6 {
+        out[5] = weapon_height;
+        out[6] = weapon_height;
+    }
+    if out.len() > 8 {
+        out[7] = projectile_height;
+        out[8] = projectile_height;
+    }
+    for stage in 0..EXPLOSION_STAGE_COUNT {
+        let idx = SPRITE_EXPLOSION_BASE as usize + stage as usize;
+        if let Some(slot) = out.get_mut(idx) {
+            *slot = projectile_height * explosion_scale(stage);
+        }
+    }
+    out
 }
 
 fn circle_hit(a_pos: Vec2, a_r: f32, b_pos: Vec2, b_r: f32) -> bool {
@@ -939,7 +1229,7 @@ mod tests {
     use super::*;
 
     fn rotation_at(list: &[f32], entity_index: usize) -> f32 {
-        let base = entity_index * 4;
+        let base = entity_index * 5;
         list[base + 2]
     }
 
@@ -957,15 +1247,15 @@ mod tests {
     }
 
     #[test]
-    fn render_list_stride_is_4() {
+    fn render_list_stride_is_5() {
         let mut game = Game::new();
         game.set_viewport(800.0, 600.0);
         let input = InputState::new();
         game.tick(1.0 / 60.0, &input);
         let list = game.render_list();
-        let expected_entities = 5 + ARROW_POOL_SIZE + CANNONBALL_POOL_SIZE;
-        assert_eq!(list.len(), expected_entities * 4);
-        assert_eq!(list.len() % 4, 0);
+        let expected_entities = 5 + ARROW_POOL_SIZE + CANNONBALL_POOL_SIZE + EXPLOSION_POOL_SIZE;
+        assert_eq!(list.len(), expected_entities * 5);
+        assert_eq!(list.len() % 5, 0);
     }
 
     #[test]
