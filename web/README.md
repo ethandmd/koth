@@ -65,5 +65,12 @@ The debug list is a flat `Float32Array` in quintuples:
 - `web/pkg/` — WASM build output (generated)
 
 ## PixiJS init imports (important for production builds)
-`web/src/main.js` includes explicit side-effect imports like `pixi.js/app`, `pixi.js/events`, `pixi.js/graphics`, etc.
-These are required so Pixi registers its renderer systems when Vite/Rollup tree-shakes production builds.
+Condition:
+- `pnpm run build && pnpm run preview` (or production bundle) hangs during `app.init()` and never renders.
+
+Cause:
+- Pixi’s renderer systems can be tree-shaken away in production, and Pixi’s internal WebGL context creation can hang.
+
+Correction:
+- Keep explicit side-effect imports in `web/src/main.js` (e.g. `pixi.js/app`, `pixi.js/events`, `pixi.js/graphics`, etc.) so renderer systems are registered.
+- Create a canvas and WebGL2 context up front, then pass both into `app.init({ view, context, preferWebGLVersion: 2, ... })`.
