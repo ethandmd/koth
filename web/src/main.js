@@ -494,18 +494,33 @@ app.ticker.add((ticker) => {
 
   debugLayer.clear();
   debugLayer.strokeStyle = { width: 1, color: 0x00ff66, alpha: 0.8 };
-  for (let i = 0; i + 4 < debugList.length; i += 5) {
+  for (let i = 0; i + 5 < debugList.length; i += 6) {
     const kind = debugList[i];
     const x = debugList[i + 1];
     const y = debugList[i + 2];
     const a = debugList[i + 3];
     const b = debugList[i + 4];
+    const rotation = debugList[i + 5];
 
     if (kind === 0) {
       debugLayer.circle(x, y, a);
       debugLayer.stroke();
     } else if (kind === 1) {
       debugLayer.rect(x - a, y - b, a * 2, b * 2);
+      debugLayer.stroke();
+    } else if (kind === 2) {
+      const dx = Math.cos(rotation);
+      const dy = Math.sin(rotation);
+      const ax = x - dx * a;
+      const ay = y - dy * a;
+      const bx = x + dx * a;
+      const by = y + dy * a;
+      debugLayer.moveTo(ax, ay);
+      debugLayer.lineTo(bx, by);
+      debugLayer.stroke();
+      debugLayer.circle(ax, ay, b);
+      debugLayer.stroke();
+      debugLayer.circle(bx, by, b);
       debugLayer.stroke();
     }
   }

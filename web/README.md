@@ -44,15 +44,16 @@ The render list is a flat `Float32Array` in sextuples:
 `main.js` interprets each entry as a single entity. `sprite_id` indexes into the `spritePaths` list.
 
 ## Debug list format
-The debug list is a flat `Float32Array` in quintuples:
+The debug list is a flat `Float32Array` in sextuples:
 
 ```
-[kind, x, y, a, b]
+[kind, x, y, a, b, rotation]
 ```
 
 `kind` values:
 - `0`: circle (`a = radius`)
 - `1`: AABB (`a = half_width`, `b = half_height`)
+- `2`: capsule (`a = half_length`, `b = radius`, `rotation` in radians)
 
 ## Current demo behavior
 - A castle sprite is centered in the viewport.

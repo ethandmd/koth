@@ -91,6 +91,7 @@ impl Default for SpriteBounds {
 enum ColliderShape {
     Circle { radius: f32 },
     Aabb { half_extents: Vec2 },
+    Capsule { half: f32, radius: f32, dir: Vec2 },
 }
 
 #[derive(Clone, Copy)]
@@ -555,10 +556,14 @@ impl Game {
                 radius: 28.0 * character_scale,
             };
         }
+        let arrow_capsule_half = projectile_height * ARROW_CAPSULE_HALF_RATIO;
+        let arrow_capsule_radius = projectile_height * ARROW_CAPSULE_RADIUS_RATIO;
         for slot in &self.arrow_projectiles {
             if let Ok(mut c_collider) = self.world.get::<&mut Collider>(slot.entity) {
-                c_collider.shape = ColliderShape::Circle {
-                    radius: projectile_height * 0.4,
+                c_collider.shape = ColliderShape::Capsule {
+                    half: arrow_capsule_half,
+                    radius: arrow_capsule_radius,
+                    dir: Vec2::new(1.0, 0.0),
                 };
             }
         }
@@ -693,9 +698,10 @@ impl Game {
         }
 
         for slot in &mut self.arrow_projectiles {
-            if let (Ok(mut proj_t), Ok(mut v)) = (
+            if let (Ok(mut proj_t), Ok(mut v), Ok(mut c)) = (
                 self.world.get::<&mut Transform>(slot.entity),
                 self.world.get::<&mut Velocity>(slot.entity),
+                self.world.get::<&mut Collider>(slot.entity),
             ) {
                 match slot.state {
                     ArrowState::Inactive => {
@@ -716,6 +722,11 @@ impl Game {
                                 rotation,
                             };
                             continue;
+                        }
+                        if let ColliderShape::Capsule { dir, .. } = &mut c.shape {
+                            if v.vel.length_squared() > 0.0001 {
+                                *dir = v.vel.normalize();
+                            }
                         }
                         let offscreen = proj_t.pos.x < -projectile_offscreen
                             || proj_t.pos.x > self.viewport_w + projectile_offscreen
@@ -745,6 +756,9 @@ impl Game {
                                 alpha,
                                 rotation,
                             };
+                            if let ColliderShape::Capsule { dir, .. } = &mut c.shape {
+                                *dir = Vec2::new(rotation.cos(), rotation.sin());
+                            }
                         }
                     }
                 }
@@ -915,8 +929,8 @@ impl Game {
     }
 
     pub fn debug_list(&mut self) -> Vec<f32> {
-        // Packed: [kind, x, y, a, b]
-        // kind: 0 = circle (a=radius), 1 = aabb (a=half_w, b=half_h)
+        // Packed: [kind, x, y, a, b, rotation]
+        // kind: 0 = circle (a=radius), 1 = aabb (a=half_w, b=half_h), 2 = capsule (a=half, b=radius)
         self.update_debug_buf();
         self.debug_buf.clone()
     }
@@ -1035,6 +1049,7 @@ impl Game {
                     self.debug_buf.push(center.y);
                     self.debug_buf.push(radius);
                     self.debug_buf.push(0.0);
+                    self.debug_buf.push(0.0);
                 }
                 ColliderShape::Aabb { half_extents } => {
                     self.debug_buf.push(1.0);
@@ -1042,6 +1057,16 @@ impl Game {
                     self.debug_buf.push(center.y);
                     self.debug_buf.push(half_extents.x);
                     self.debug_buf.push(half_extents.y);
+                    self.debug_buf.push(0.0);
+                }
+                ColliderShape::Capsule { half, radius, dir } => {
+                    let rotation = dir.y.atan2(dir.x);
+                    self.debug_buf.push(2.0);
+                    self.debug_buf.push(center.x);
+                    self.debug_buf.push(center.y);
+                    self.debug_buf.push(half);
+                    self.debug_buf.push(radius);
+                    self.debug_buf.push(rotation);
                 }
             }
         }
@@ -1071,9 +1096,6 @@ impl Game {
         let hidden_pos = Vec2::new(-10000.0, -10000.0);
         let mut explosion_spawns: Vec<Vec2> = Vec::new();
 
-        let arrow_height = self.sprite_height_for(7);
-        let arrow_capsule_half = arrow_height * ARROW_CAPSULE_HALF_RATIO;
-        let arrow_capsule_radius = arrow_height * ARROW_CAPSULE_RADIUS_RATIO;
         for slot in &mut self.arrow_projectiles {
             if !matches!(slot.state, ArrowState::Flying) {
                 continue;
@@ -1083,25 +1105,32 @@ impl Game {
                 self.world.get::<&Collider>(slot.entity),
                 self.world.get::<&Velocity>(slot.entity),
             ) {
-                let rotation = if v.vel.length_squared() > 0.0001 {
-                    v.vel.y.atan2(v.vel.x)
-                } else {
-                    0.0
-                };
-                let dir = Vec2::new(rotation.cos(), rotation.sin());
-                Some((t.pos + c.offset, dir))
+                match c.shape {
+                    ColliderShape::Capsule { half, radius, dir } => {
+                        let dir = if v.vel.length_squared() > 0.0001 {
+                            v.vel.normalize()
+                        } else {
+                            dir
+                        };
+                        Some((t.pos + c.offset, dir, half, radius))
+                    }
+                    ColliderShape::Circle { radius } => {
+                        Some((t.pos + c.offset, Vec2::new(1.0, 0.0), radius, radius))
+                    }
+                    ColliderShape::Aabb { .. } => None,
+                }
             } else {
                 None
             };
-            if let Some((proj_pos, proj_dir)) = proj_data {
+            if let Some((proj_pos, proj_dir, proj_half, proj_radius)) = proj_data {
                 let mut hit = false;
                 if try_hit_character_capsule(
                     &mut self.world,
                     self.triguy,
                     proj_pos,
                     proj_dir,
-                    arrow_capsule_half,
-                    arrow_capsule_radius,
+                    proj_half,
+                    proj_radius,
                     &mut self.triguy_state,
                 ) {
                     hit = true;
@@ -1112,8 +1141,8 @@ impl Game {
                     self.wedgeguy,
                     proj_pos,
                     proj_dir,
-                    arrow_capsule_half,
-                    arrow_capsule_radius,
+                    proj_half,
+                    proj_radius,
                     &mut self.wedgeguy_state,
                 ) {
                     hit = true;

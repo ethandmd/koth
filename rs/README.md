@@ -65,12 +65,13 @@ Each frame, JS reads these sextuples and updates sprites.
 Packed as a flat float array, grouped as:
 
 ```
-[kind, x, y, a, b]
+[kind, x, y, a, b, rotation]
 ```
 
 `kind` values:
 - `0`: circle (`a = radius`)
 - `1`: AABB (`a = half_width`, `b = half_height`)
+- `2`: capsule (`a = half_length`, `b = radius`, `rotation` in radians)
 
 ## Current logic
 - `Game` stores `time` and advances it in `tick`.
