@@ -1,17 +1,163 @@
-import { Application, Assets, Graphics, Sprite, TextureStyle } from 'pixi.js';
+import 'pixi.js/browser';
+import 'pixi.js/app';
+import 'pixi.js/events';
+import 'pixi.js/dom';
+import 'pixi.js/filters';
+import 'pixi.js/prepare';
+import 'pixi.js/graphics';
+import 'pixi.js/sprite-tiling';
+import 'pixi.js/text';
+import 'pixi.js/text-bitmap';
+import 'pixi.js/text-html';
+import 'pixi.js/mesh';
+import 'pixi.js/particle-container';
+import 'pixi.js/accessibility';
+import 'pixi.js/advanced-blend-modes';
+
+import {
+  Application,
+  Assets,
+  Graphics,
+  Sprite,
+  TextureStyle,
+  WebGLRenderer,
+  isWebGLSupported,
+  isWebGPUSupported,
+} from 'pixi.js';
 import init, { Game, InputState } from '../pkg/koth_core.js';
 
+window.addEventListener('error', (event) => {
+  console.error('[boot] window error', event.error ?? event.message ?? event, event);
+});
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('[boot] unhandled rejection', event.reason ?? event, event);
+});
+
+globalThis.__PIXI_APP_INIT__ = (app, version) => {
+  console.log('[boot] pixi app init hook', { version, app });
+};
+globalThis.__PIXI_RENDERER_INIT__ = (renderer, version) => {
+  console.log('[boot] pixi renderer init hook', {
+    version,
+    type: renderer?.type,
+    name: renderer?.name,
+  });
+};
+
+const mountEl = document.getElementById('app');
+const view = document.createElement('canvas');
+if (mountEl) {
+  mountEl.appendChild(view);
+}
+view.addEventListener('webglcontextlost', (event) => {
+  event.preventDefault();
+  console.error('[boot] view context lost', event);
+});
+view.addEventListener('webglcontextrestored', (event) => {
+  console.warn('[boot] view context restored', event);
+});
 const app = new Application();
+const bootStartedAt = performance.now();
+console.log('[boot] starting app.init', {
+  mode: import.meta.env.MODE,
+  baseUrl: import.meta.env.BASE_URL,
+});
+console.log('[boot] isWebGLSupported', isWebGLSupported());
+console.log('[boot] navigator.gpu', Boolean(navigator.gpu));
+const webgpuSupportProbe = Promise.race([
+  isWebGPUSupported(),
+  new Promise((resolve) => setTimeout(() => resolve('timeout'), 1500)),
+]);
+console.log('[boot] isWebGPUSupported', await webgpuSupportProbe);
+const preflightCanvas = document.createElement('canvas');
+const preflight = {
+  webgl2: Boolean(preflightCanvas.getContext('webgl2')),
+  webgl: Boolean(preflightCanvas.getContext('webgl')),
+};
+console.log('[boot] webgl preflight', preflight);
+const viewContext = view.getContext('webgl2', {
+  alpha: true,
+  antialias: true,
+  stencil: true,
+  powerPreference: 'high-performance',
+});
+console.log('[boot] view context', {
+  webgl2: Boolean(viewContext),
+});
+setTimeout(() => {
+  const resources = performance.getEntriesByType('resource');
+  const interesting = resources
+    .filter((entry) => /WebGLRenderer|WebGPURenderer|SharedSystems|index-/.test(entry.name))
+    .map((entry) => ({
+      name: entry.name,
+      startTime: Math.round(entry.startTime),
+      duration: Math.round(entry.duration),
+      transferSize: entry.transferSize,
+    }));
+  console.log('[boot] resource snapshot', interesting);
+}, 1000);
+const appInitTimeout = setTimeout(() => {
+  console.warn('[boot] app.init timeout (>5s)', {
+    elapsedMs: Math.round(performance.now() - bootStartedAt),
+  });
+}, 5000);
+console.log('[boot] WebGLRenderer init probe start');
+console.log('[boot] renderer init systems', WebGLRenderer?.defaultSystemConfig?.systems?.length ?? 'unknown');
+const probeRenderer = new WebGLRenderer();
+console.log('[boot] runner init items', probeRenderer.runners.init.items.length);
+for (const system of probeRenderer.runners.init.items) {
+  if (typeof system?.init === 'function') {
+    const originalInit = system.init.bind(system);
+    system.init = async (options) => {
+      const label = system.constructor?.name ?? 'unknown-system';
+      const startedAt = performance.now();
+      console.log('[boot] system init start', label);
+      try {
+        const result = await originalInit(options);
+        console.log('[boot] system init done', label, {
+          elapsedMs: Math.round(performance.now() - startedAt),
+        });
+        return result;
+      } catch (error) {
+        console.error('[boot] system init failed', label, error);
+        throw error;
+      }
+    };
+  }
+}
+const probeInit = Promise.race([
+  probeRenderer.init({
+    view,
+    context: viewContext ?? undefined,
+    preferWebGLVersion: 2,
+    background: '#0b0b0b',
+    resizeTo: window,
+    preference: 'webgl',
+    powerPreference: 'high-performance',
+  }),
+  new Promise((resolve) => setTimeout(() => resolve('timeout'), 3000)),
+]);
+const probeResult = await probeInit;
+if (probeResult === 'timeout') {
+  console.warn('[boot] WebGLRenderer init probe timeout (>3s)');
+} else {
+  console.log('[boot] WebGLRenderer init probe complete');
+}
 await app.init({
+  view,
+  context: viewContext ?? undefined,
+  preferWebGLVersion: 2,
   background: '#0b0b0b',
   resizeTo: window,
   preference: 'webgl',
   powerPreference: 'high-performance',
 });
+clearTimeout(appInitTimeout);
+console.log('[boot] app.init complete', {
+  renderer: app.renderer?.constructor?.name ?? 'unknown',
+});
 
 TextureStyle.defaultOptions.scaleMode = 'nearest';
-
-document.getElementById('app').appendChild(app.canvas);
 
 app.canvas.addEventListener('webglcontextlost', (event) => {
   event.preventDefault();

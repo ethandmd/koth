@@ -2,7 +2,7 @@
 .gitignore
 .env
 .DS_Store
-
+*.md
 web/node_modules
 web/dist
 web/pkg

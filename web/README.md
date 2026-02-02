@@ -63,3 +63,7 @@ The debug list is a flat `Float32Array` in quintuples:
 - `web/src/main.js` — Pixi setup, input capture, render loop
 - `web/public/sprites/` — sprite assets
 - `web/pkg/` — WASM build output (generated)
+
+## PixiJS init imports (important for production builds)
+`web/src/main.js` includes explicit side-effect imports like `pixi.js/app`, `pixi.js/events`, `pixi.js/graphics`, etc.
+These are required so Pixi registers its renderer systems when Vite/Rollup tree-shakes production builds.
